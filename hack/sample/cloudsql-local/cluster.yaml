@@ -1,0 +1,10 @@
+apiVersion: airflow.k8s.io/v1alpha1
+kind: AirflowCluster
+metadata:
+  name: cl-cluster
+spec:
+  executor: Local
+  scheduler:
+    version: "1.10.0rc2"
+  airflowbase:
+    name: cl-base

@@ -1,27 +1,22 @@
 **This is not an officially supported Google product.**
 
 # Airflow Operator
-
-The Airflow Operator is a Kubernetes [operator](https://coreos.com/blog/introducing-operators.html) that manages the life cycle of an Airflow Deployment. An airflow deployment is split into 2 parts Base and Cluster represented my AirflowBase and AirflowCluster [custom resources](https://kubernetes.io/docs/tasks/access-kubernetes-api/extend-api-custom-resource-definitions/). 
-
-The controller performs these jobs:
+Airflow Operator is a custom [Kubernetes operator](https://coreos.com/blog/introducing-operators.html) that makes it easy to deploy and manage [Apache Airflow](https://airflow.apache.org/) on Kubernetes. Apache Airflow is a platform to programmatically author, schedule and monitor workflows. Using the Airflow Operator, an Airflow cluster is split into 2 parts represented by AirflowBase and AirflowCluster custom resources.
+The Airflow Operator performs these jobs:
 * Creates and manages the necessary Kubernetes resources for an Airflow deployment.
-* Updates the corresponding Kubernetes resources when the Base or Cluster specification changes.
+* Updates the corresponding Kubernetes resources when the AirflowBase or AirflowCluster specification changes.
 * Restores managed Kubernetes resources that are deleted.
-* Supports creation of different kind of Airflow schedulers
-* Supports mulitple AirflowClusters configuration per AirflowBase
+* Supports creation of different kinds of Airflow schedulers
+* Supports mulitple AirflowClusters per AirflowBase
 
 ## Project Status
-
 The Airflow Operator is still under active development and has not been extensively tested in production environment. Backward compatibility of the APIs is not guaranteed for alpha releases.
 
 ## Prerequisites
-
 * Version >= 1.9 of Kubernetes.
 * Version 4.0.x of Redis
 * Version 1.9 of Airflow (1.10.0rc2+ for k8s executor)
 * Version 5.7 of MySQL
-
 
 ## Quick Start
 #### Assumptions
@@ -43,7 +38,7 @@ $ kubectl create -f manifests/install_controller.yaml
 # check airflow controller pods
 $ kubectl get pod airflow-controller-manager-0 -n airflow-system
 
-# get airflow controller logs
+# follow airflow controller logs in a terminal session
 $ kubectl logs -f airflow-controller-manager-0 -n airflow-system
 ```
 
@@ -56,33 +51,20 @@ The `hack/sample/` directory contains sample Airflow CRs
 ```bash
 # deploy base components first
 $ kubectl apply -f hack/sample/mysql-celery/base.yaml
-
 # after 30-60s deploy cluster components 
-# for celery + git as DAG source
+# using celery + git as DAG source
 $ kubectl apply -f hack/sample/mysql-celery/cluster.yaml
-# for celery + gcs as DAG source (you need to update to point to your gcs bucket)
-$ kubectl apply -f hack/sample/mysql-celery-gcs/cluster.yaml
-
 # port forward to access the UI
 $ kubectl port-forward mc-cluster-airflowui-0 8080:8080
-#  OR
-$ kubectl port-forward mcg-cluster-airflowui-0 8080:8080
-
 # get status of the CRs
 $ kubectl get airflowbase/mc-base -o yaml 
 $ kubectl get airflowcluster/mc-cluster -o yaml 
-#  OR
+
+# Against the same mc-base, we could deploy another cluster.
+# celery + gcs as DAG source (you need to update to point to your gcs bucket)
+$ kubectl apply -f hack/sample/mysql-celery-gcs/cluster.yaml
+$ kubectl port-forward mcg-cluster-airflowui-0 8081:8080
 $ kubectl get airflowcluster/mcg-cluster -o yaml 
-
-
-# we could deploy k8s based cluster against the same base components
-$ kubectl apply -f hack/sample/mysql-k8s/cluster.yaml
-
-# port forward to access the k8s executor base clyster UI (on port 8081)
-$ kubectl port-forward mk-cluster-airflowui-0 8081:8080
-
-# get status of the CRs
-$ kubectl get airflowcluster/mk-cluster -o yaml 
 ```
 
 ##### Running CloudSQL based samples
@@ -105,10 +87,9 @@ $ kubectl get airflowbase/cc-base -o yaml
 $ kubectl get airflowcluster/cc-cluster -o yaml 
 ```
 
-## Supporting Kubernetes Resources
+## Kubernetes Resources created
 
 #### StatefulSet
-
 - For MySQL server
 - For Redis server
 - For NFS server
@@ -117,37 +98,39 @@ $ kubectl get airflowcluster/cc-cluster -o yaml
 - For Airflow-Workers
 
 #### Secret
-
 - Generated for MySQL user and root passwords
 - Generated for Redis password
 
 #### Service
-
 - client service for MySQL
 - client service for Redis
 - client service for Airflow UI
 - client service for NFS
 
 #### PodDisruptionBudget
-
 - for MySQL
 - for Redis
 - for NFS
 
 #### RoleBinding
-
 - for Scheduler
 
 #### ServiceAccount
-
 - for Scheduler
 
 ## Development
-Local build and testing
-```bash
-# from repo top level folder
-# uses current cluster from ~/.kube/config
+You should have kubeconfig setup to point to your cluster.
+In case you want to build the Airflow Operator from the source code, e.g., to test a fix or a feature you write, you can do so following the instructions below.
 
+Cloning the repo:
+```bash
+$ mkdir -p $GOPATH/src/k8s.io
+$ cd $GOPATH/src/k8s.io
+$ git clone git@github.com:GoogleCloudPlatform/airflow-operator.git
+```
+
+Building and running locally:
+```bash
 # build
 make build
 
@@ -156,11 +139,14 @@ make test
 
 # run locally
 make run
+```
 
-# build docker image
+To build a docker image and work with that, you would need to change the `image` in `Makefile` and `manifests/install_controller.yaml`
+```bash
+# building docker image
 # note: change the 'image' in makefile
-make image
+make docker-build
 
 # push docker image
-make push
+make docker-push
 ```

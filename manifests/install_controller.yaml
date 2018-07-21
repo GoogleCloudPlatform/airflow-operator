@@ -64,7 +64,7 @@ spec:
         - --install-crds=true
         command:
         - /root/controller-manager
-        image: gcr.io/kubeflow-193622/airflow-operator:latest
+        image: gcr.io/airflow-operator/airflow-operator:alpha
         imagePullPolicy: Always
         name: controller-manager
         resources:

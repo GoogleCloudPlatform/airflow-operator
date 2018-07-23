@@ -221,12 +221,12 @@ type AirflowBaseSpec struct {
 	// Spec for MySQL component.
 	// +optional
 	MySQL *MySQLSpec `json:"mysql,omitempty"`
-	// Spec for Airflow UI component.
-	// +optional
-	UI *AirflowUISpec `json:"ui,omitempty"`
 	// Spec for NFS component.
 	// +optional
 	Storage *NFSStoreSpec `json:"storage,omitempty"`
+	// Spec for Airflow UI component.
+	// +optional
+	UI *AirflowUISpec `json:"ui,omitempty"`
 	// Spec for SQLProxy component. Ignored if SQL(MySQLSpec) is specified.
 	// +optional
 	SQLProxy *SQLProxySpec `json:"sqlproxy,omitempty"`
@@ -578,4 +578,29 @@ func (b *AirflowBase) Components() map[string]ComponentHandle {
 // StatusDiffers returns True if there is a change in status
 func (b *AirflowBase) StatusDiffers(new AirflowBaseStatus) bool {
 	return true
+}
+
+// NewAirflowBase return a defaults filled AirflowBase object
+func NewAirflowBase(name, namespace string, mysql, storage bool) *AirflowBase {
+	b := AirflowBase{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				"test": name,
+			},
+			Namespace: namespace,
+		},
+	}
+	b.Spec = AirflowBaseSpec{}
+	if mysql {
+		b.Spec.MySQL = &MySQLSpec{}
+	}
+	if !mysql {
+		b.Spec.SQLProxy = &SQLProxySpec{}
+	}
+	if storage {
+		b.Spec.Storage = &NFSStoreSpec{}
+	}
+	b.ApplyDefaults()
+	return &b
 }

@@ -142,13 +142,17 @@ func envFromSecret(name string, key string) *corev1.EnvVarSource {
 	}
 }
 
-func selectorLabels(r AirflowResource, component string) labels.Selector {
-	selectors := map[string]string{
-		LabelAirflowCR:        r.getCRName(),
-		LabelAirflowCRName:    r.getName(),
+// RsrcLabels return resource labels
+func RsrcLabels(cr, name, component string) map[string]string {
+	return map[string]string{
+		LabelAirflowCR:        cr,
+		LabelAirflowCRName:    name,
 		LabelAirflowComponent: component,
 	}
-	return labels.Set(selectors).AsSelector()
+}
+
+func selectorLabels(r AirflowResource, component string) labels.Selector {
+	return labels.Set(RsrcLabels(r.getCRName(), r.getName(), component)).AsSelector()
 }
 
 func rsrcName(name string, component string, suffix string) string {
@@ -281,7 +285,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 		{Name: "SQL_DB", Value: sp.Scheduler.DBName},
 		{Name: "DB_TYPE", Value: "mysql"},
 	}
-	if sp.Executor == executorK8s {
+	if sp.Executor == ExecutorK8s {
 		env = append(env, []corev1.EnvVar{
 			{Name: afk + "WORKER_CONTAINER_REPOSITORY", Value: sp.Worker.Image},
 			{Name: afk + "WORKER_CONTAINER_TAG", Value: sp.Worker.Version},
@@ -307,7 +311,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 			}
 		}
 	}
-	if sp.Executor == executorCelery {
+	if sp.Executor == ExecutorCelery {
 		env = append(env,
 			[]corev1.EnvVar{
 				{Name: "REDIS_PASSWORD",
@@ -1146,7 +1150,7 @@ func (s *SchedulerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
 	}
 	args := []string{"scheduler"}
 
-	if r.Spec.Executor == executorK8s {
+	if r.Spec.Executor == ExecutorK8s {
 		ss.Spec.Template.Spec.ServiceAccountName = ss.Name
 	}
 	containers := []corev1.Container{

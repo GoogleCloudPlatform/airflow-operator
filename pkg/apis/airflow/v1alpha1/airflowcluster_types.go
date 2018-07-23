@@ -29,17 +29,17 @@ const (
 	gitsyncVersion          = "v2.0.6"
 	gcssyncImage            = "gcr.io/cloud-airflow-releaser/gcs-syncd"
 	gcssyncVersion          = "cloud_composer_service_2018-05-23-RC0"
-	executorLocal           = "Local"
-	executorCelery          = "Celery"
-	executorSequential      = "Sequential"
-	executorK8s             = "Kubernetes"
-	defaultExecutor         = executorLocal
+	ExecutorLocal           = "Local"
+	ExecutorCelery          = "Celery"
+	ExecutorSequential      = "Sequential"
+	ExecutorK8s             = "Kubernetes"
+	defaultExecutor         = ExecutorLocal
 	defaultBranch           = "master"
 	defaultWorkerVersion    = "1.10.0rc2"
 	defaultSchedulerVersion = "1.10.0rc2"
 )
 
-var allowedExecutors = []string{executorLocal, executorSequential, executorCelery, executorK8s}
+var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCelery, ExecutorK8s}
 
 // RedisSpec defines the attributes and desired state of Redis component
 type RedisSpec struct {
@@ -316,6 +316,9 @@ func (b *AirflowCluster) ApplyDefaults() {
 		if b.Spec.UI.Version == "" {
 			b.Spec.UI.Version = defaultUIVersion
 		}
+		if b.Spec.UI.Replicas == 1 {
+			b.Spec.UI.Replicas = 1
+		}
 	}
 	if b.Spec.Worker != nil {
 		if b.Spec.Worker.Image == "" {
@@ -365,7 +368,7 @@ func (b *AirflowCluster) Validate() error {
 		errs = append(errs, field.Required(spec.Child("scheduler"), "scheduler required"))
 	}
 
-	if b.Spec.Executor == executorCelery {
+	if b.Spec.Executor == ExecutorCelery {
 		if b.Spec.Redis == nil {
 			errs = append(errs, field.Required(spec.Child("redis"), "redis required for Celery executor"))
 		}
@@ -396,7 +399,7 @@ func (b *AirflowCluster) Components() map[string]ComponentHandle {
 	if b.Spec.UI != nil {
 		c["UI"] = b.Spec.UI
 	}
-	if b.Spec.Worker != nil && b.Spec.Executor == executorCelery {
+	if b.Spec.Worker != nil && b.Spec.Executor == ExecutorCelery {
 		c["Worker"] = b.Spec.Worker
 	}
 	return c
@@ -405,4 +408,27 @@ func (b *AirflowCluster) Components() map[string]ComponentHandle {
 // StatusDiffers returns True if there is a change in status
 func (b *AirflowCluster) StatusDiffers(new AirflowClusterStatus) bool {
 	return true
+}
+
+// NewAirflowCluster return a defaults filled AirflowCluster object
+func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *AirflowCluster {
+	c := AirflowCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Labels:    map[string]string{},
+			Namespace: namespace,
+		},
+	}
+	c.Spec = AirflowClusterSpec{}
+	c.Spec.Executor = executor
+	c.Spec.Scheduler = &SchedulerSpec{}
+	c.Spec.UI = &AirflowUISpec{}
+	if executor == ExecutorCelery {
+		c.Spec.Redis = &RedisSpec{}
+		c.Spec.Worker = &WorkerSpec{}
+	}
+	c.Spec.DAGs = dags
+	c.Spec.AirflowBaseRef = &corev1.LocalObjectReference{Name: base}
+	c.ApplyDefaults()
+	return &c
 }

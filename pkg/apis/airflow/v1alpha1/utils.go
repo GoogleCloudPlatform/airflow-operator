@@ -289,6 +289,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 		env = append(env, []corev1.EnvVar{
 			{Name: afk + "WORKER_CONTAINER_REPOSITORY", Value: sp.Worker.Image},
 			{Name: afk + "WORKER_CONTAINER_TAG", Value: sp.Worker.Version},
+			{Name: afk + "WORKER_CONTAINER_IMAGE_PULL_POLICY", Value: "IfNotPresent"},
 			{Name: afk + "DELETE_WORKER_PODS", Value: "True"},
 			{Name: afk + "NAMESPACE", Value: r.Namespace},
 			//{Name: afk+"AIRFLOW_CONFIGMAP", Value: ??},

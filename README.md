@@ -35,9 +35,14 @@ The Airflow Operator performs these jobs:
 * Supports creation of Airflow schedulers with different Executors
 * Supports sharing of the `AirflowBase` across mulitple `AirflowClusters`
 
+Checkout out the [Design](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/design.md)
+
+![Airflow Cluster](docs/airflow-cluster.png)
+
+
 ## Development
 
-Check out the [Design](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/design.md) and [Development Guide](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/development.md).
+Refer to the [Design](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/design.md) and [Development Guide](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/development.md).
 
 ## Managed Airflow solution
 

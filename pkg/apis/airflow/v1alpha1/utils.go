@@ -55,7 +55,7 @@ const (
 	ValueAirflowComponentRedis     = "redis"
 	ValueAirflowComponentScheduler = "scheduler"
 	ValueAirflowComponentWorker    = "worker"
-	ValueAirflowComponentFlower	   = "flower"
+	ValueAirflowComponentFlower    = "flower"
 	LabelControllerVersion         = "airflow-controller-version"
 	LabelApp                       = "app"
 

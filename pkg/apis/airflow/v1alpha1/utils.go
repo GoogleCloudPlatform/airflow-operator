@@ -55,6 +55,7 @@ const (
 	ValueAirflowComponentRedis     = "redis"
 	ValueAirflowComponentScheduler = "scheduler"
 	ValueAirflowComponentWorker    = "worker"
+	ValueAirflowComponentFlower	   = "flower"
 	LabelControllerVersion         = "airflow-controller-version"
 	LabelApp                       = "app"
 
@@ -1339,4 +1340,81 @@ func (s *WorkerSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, e
 func (s *WorkerSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
 	// TODO
 	return true
+}
+
+// ------------------------------ Flower ---------------------------------------
+// ExpectedResources returns the list of resource/name for those resources created by
+func (s *FlowerSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+	r := rsrc.(*AirflowCluster)
+	return []ResourceInfo{
+		ResourceInfo{LifecycleManaged, s.sts(r), ""},
+	}
+}
+
+// ObserveSelectors returns the list of resource/selecitos for resources created
+func (s *FlowerSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
+	r := rsrc.(*AirflowCluster)
+	selector := selectorLabels(r, ValueAirflowComponentFlower)
+	return []ResourceSelector{
+		{&resources.StatefulSet{}, selector},
+		{&resources.Secret{}, selector},
+	}
+}
+
+// Differs returns true if the resource needs to be updated
+func (s *FlowerSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
+	// TODO
+	switch expected.Obj.(type) {
+	case *resources.Secret:
+		// Dont update a secret
+		return false
+	}
+	return true
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *FlowerSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
+	status := rsrc.(*AirflowClusterStatus)
+	status.Flower = ComponentStatus{}
+	if s != nil {
+		status.Flower.update(reconciled, err)
+		if status.Flower.Status != StatusReady {
+			status.Status = StatusInProgress
+		}
+	}
+}
+
+func (s *FlowerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
+	ss := sts(r, ValueAirflowComponentFlower, "", true)
+	volName := "dags-data"
+	ss.Spec.Replicas = &s.Replicas
+	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
+		{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+	}
+	args := []string{"flower"}
+	env := r.getAirflowEnv(ss.Name)
+	containers := []corev1.Container{
+		{
+			Name:            "flower",
+			Image:           s.Image + ":" + s.Version,
+			Args:            args,
+			Env:             env,
+			ImagePullPolicy: corev1.PullAlways,
+			Resources:       s.Resources,
+			Ports: []corev1.ContainerPort{
+				{
+					Name:          "flower",
+					ContainerPort: 5555,
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      volName,
+					MountPath: "/usr/local/airflow/dags/",
+				},
+			},
+		},
+	}
+	r.addAirflowContainers(ss, containers, volName)
+	return &resources.StatefulSet{StatefulSet: ss}
 }

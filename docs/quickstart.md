@@ -37,6 +37,8 @@ $ kubectl apply -f hack/sample/mysql-celery/base.yaml
 $ kubectl apply -f hack/sample/mysql-celery/cluster.yaml
 # port forward to access the UI
 $ kubectl port-forward mc-cluster-airflowui-0 8080:8080
+# port forward to access the Flower
+$ kubectl port-forward mc-cluster-flower-0 5555:5555
 # get status of the CRs
 $ kubectl get airflowbase/mc-base -o yaml 
 $ kubectl get airflowcluster/mc-cluster -o yaml 

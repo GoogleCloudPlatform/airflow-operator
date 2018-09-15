@@ -29,7 +29,7 @@ const (
 	gitsyncImage            = "gcr.io/google_containers/git-sync"
 	gitsyncVersion          = "v2.0.6"
 	gcssyncImage            = "gcr.io/cloud-airflow-releaser/gcs-syncd"
-	gcssyncVersion 	        = "cloud_composer_service_2018-05-23-RC0"
+	gcssyncVersion          = "cloud_composer_service_2018-05-23-RC0"
 	ExecutorLocal           = "Local"
 	ExecutorCelery          = "Celery"
 	ExecutorSequential      = "Sequential"
@@ -352,7 +352,7 @@ func (b *AirflowCluster) ApplyDefaults() {
 		if b.Spec.Flower.Version == "" {
 			b.Spec.Flower.Version = defaultFlowerImage
 		}
-		if b.Spec.Flower.Replicas == 1 {
+		if b.Spec.Flower.Replicas == 0 {
 			b.Spec.Flower.Replicas = 1
 		}
 	}

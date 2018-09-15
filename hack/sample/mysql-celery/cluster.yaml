@@ -30,6 +30,9 @@ spec:
   worker:
     replicas: 2
     version: "1.10.0rc2"
+  flower:
+    replicas: 1
+    version: "1.10.0rc2"
   dags:
     subdir: "airflow/example_dags/"
     git:

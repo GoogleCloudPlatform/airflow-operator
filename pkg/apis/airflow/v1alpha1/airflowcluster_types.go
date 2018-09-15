@@ -25,6 +25,7 @@ const (
 	defaultRedisVersion     = "4.0"
 	defaultWorkerImage      = "gcr.io/airflow-operator/airflow"
 	defaultSchedulerImage   = "gcr.io/airflow-operator/airflow"
+	defaultFlowerImage      = "gcr.io/airflow-operator/airflow"
 	gitsyncImage            = "gcr.io/google_containers/git-sync"
 	gitsyncVersion          = "v2.0.6"
 	gcssyncImage            = "gcr.io/cloud-airflow-releaser/gcs-syncd"
@@ -69,6 +70,24 @@ func (s *RedisSpec) validate(fp *field.Path) field.ErrorList {
 	if s.Operator == true {
 		errs = append(errs, field.Invalid(fp.Child("operator"), "", "Operator is not supported in this version"))
 	}
+	return errs
+}
+
+// FlowerSpec defines the attributes to deploy Flower component
+type FlowerSpec struct {
+	// Image defines the Flower Docker image.
+	Image string `json:"image"`
+	// Version defines the Flower Docker image version.
+	Version string `json:"version"`
+	// Replicas defines the number of running Flower instances in a cluster
+	Replicas int32 `json:"replicas,omitempty"`
+	// Resources is the resource requests and limits for the pods.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+func (s *FlowerSpec) validate(fp *field.Path) field.ErrorList {
+	errs := field.ErrorList{}
 	return errs
 }
 
@@ -226,6 +245,9 @@ type AirflowClusterSpec struct {
 	// Spec for Airflow UI component.
 	// +optional
 	UI *AirflowUISpec `json:"ui,omitempty"`
+	// Spec for Flower component.
+	// +optional
+	Flower *FlowerSpec `json:"flower,omitempty"`
 	// Spec for DAG source and location
 	// +optional
 	DAGs *DagSpec `json:"dags,omitempty"`
@@ -260,6 +282,9 @@ type AirflowClusterStatus struct {
 	// UI is the status of the Airflow UI component
 	// +optional
 	UI ComponentStatus `json:"ui,omitempty"`
+	// Flower is the status of the Airflow UI component
+	// +optional
+	Flower ComponentStatus `json:"flower,omitempty"`
 	// LastError
 	LastError string `json:"lasterror,omitempty"`
 	// Status
@@ -320,6 +345,17 @@ func (b *AirflowCluster) ApplyDefaults() {
 			b.Spec.UI.Replicas = 1
 		}
 	}
+	if b.Spec.Flower != nil {
+		if b.Spec.Flower.Image == "" {
+			b.Spec.Flower.Image = defaultFlowerImage
+		}
+		if b.Spec.Flower.Version == "" {
+			b.Spec.Flower.Version = defaultFlowerImage
+		}
+		if b.Spec.Flower.Replicas == 0 {
+			b.Spec.Flower.Replicas = 1
+		}
+	}
 	if b.Spec.Worker != nil {
 		if b.Spec.Worker.Image == "" {
 			b.Spec.Worker.Image = defaultWorkerImage
@@ -353,6 +389,7 @@ func (b *AirflowCluster) Validate() error {
 	errs = append(errs, b.Spec.Worker.validate(spec.Child("worker"))...)
 	errs = append(errs, b.Spec.DAGs.validate(spec.Child("dags"))...)
 	errs = append(errs, b.Spec.UI.validate(spec.Child("ui"))...)
+	errs = append(errs, b.Spec.Flower.validate(spec.Child("flower"))...)
 
 	allowed := false
 	for _, executor := range allowedExecutors {
@@ -377,6 +414,12 @@ func (b *AirflowCluster) Validate() error {
 		}
 	}
 
+	if b.Spec.Flower != nil {
+		if b.Spec.Executor != ExecutorCelery {
+			errs = append(errs, field.Required(spec.Child("executor"), "celery executor required for Flower"))
+		}
+	}
+
 	if b.Spec.AirflowBaseRef == nil {
 		errs = append(errs, field.Required(spec.Child("airflowbase"), "airflowbase reference missing"))
 	} else if b.Spec.AirflowBaseRef.Name == "" {
@@ -392,6 +435,9 @@ func (b *AirflowCluster) Components() map[string]ComponentHandle {
 
 	if b.Spec.Redis != nil {
 		c["Redis"] = b.Spec.Redis
+	}
+	if b.Spec.Flower != nil {
+		c["Flower"] = b.Spec.Flower
 	}
 	if b.Spec.Scheduler != nil {
 		c["Scheduler"] = b.Spec.Scheduler
@@ -426,6 +472,7 @@ func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *A
 	if executor == ExecutorCelery {
 		c.Spec.Redis = &RedisSpec{}
 		c.Spec.Worker = &WorkerSpec{}
+		c.Spec.Flower = &FlowerSpec{}
 	}
 	c.Spec.DAGs = dags
 	c.Spec.AirflowBaseRef = &corev1.LocalObjectReference{Name: base}

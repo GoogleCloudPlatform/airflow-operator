@@ -38,7 +38,7 @@ up. This improves cluster utilization and provide multiple users (in same trust 
 | Operator | bool  | `operator` | Flag when True generates MySQLOperator CustomResource to be handled by MySQL Operator If False, a StatefulSet with 1 replica is created (not for production setups) |
 | Backup | \*MySQLBackup | `backup` | Spec defining the Backup Custom Resource to be handled by MySQLOperator Ignored when Operator is False |
 | Resources | corev1.ResourceRequirements | `resources` | Resources is the resource requests and limits for the pods |
-| Options | map[string]string | `` | command line options for mysql |
+| Options | map[string]string | ` ` | command line options for mysql |
 
 
 #### MySQLBackup 
@@ -49,25 +49,13 @@ up. This improves cluster utilization and provide multiple users (in same trust 
 
 
 ##### StorageSpec 
-describes the s3 compatible storage
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
 | StorageProvider | string | `storageprovider` | Provider is the storage type used for backup and restore e.g. s3, oci-s3-compat, aws-s3, gce-s3, etc |
 | SecretRef | \*corev1.LocalObjectReference | `secretRef` | SecretRef is a reference to the Kubernetes secret containing the configuration for uploading the backup to authenticated storage |
 | Config | map[string]string | `config` | Config is generic string based key-value map that defines non-secret configuration values for uploading the backup to storage w.r.t the configured storage provider |
 
-
-#### AirflowUISpec
-AirflowUISpec defines the attributes to deploy Airflow UI component
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| Image | string | `image` | Image defines the AirflowUI Docker image.|
-| Version | string | `version` | Version defines the AirflowUI Docker image version.|
-| Replicas | int32 | `replicas` | Replicas defines the number of running Airflow UI instances in a cluster|
-| Resources | corev1.ResourceRequirements | `resources` | Resources is the resource requests and limits for the pods.|
-
 #### NFSStoreSpec
-| / | NFSStoreSpec defines the attributes to deploy Airflow Storage component|
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
 | Image | string | `image` | Image defines the NFS Docker image.|
@@ -76,7 +64,6 @@ AirflowUISpec defines the attributes to deploy Airflow UI component
 | Volume | \*corev1.PersistentVolumeClaim | `volumeClaimTemplate` | Volume allows a user to specify volume claim template to be used for fileserver|
 
 #### SQLProxySpec
-SQLProxySpec defines the attributes to deploy SQL Proxy component
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
 | Image | string | `image` | Image defines the SQLProxy Docker image name|
@@ -98,65 +85,40 @@ SQLProxySpec defines the attributes to deploy SQL Proxy component
 | LastError | string | `lasterror` | LastError |
 | Status | string | `status`| 	Reaedy or Pending |
 
-## Common
-
-#### ComponentStatus
-ComponentStatus is a generic status holder for components
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| STS | []StsStatus | `sts` | StatefulSet status|
-| SVC | []SvcStatus | `svc` | Service status|
-| PDB | []PdbStatus | `pdb` | PDB status|
-| LastError | string | `lasterror` | LastError|
-| Status | string | `status` | Status|
-
-#### StsStatus 
-is a generic status holder for stateful-set
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| Link | string | `link` | Link to sts|
-| Name | string | `name` | Name of sts|
-| Status | string | `status` | Status to rsrc|
-| Replicas | int32 | `replicas` | Replicas defines the no of MySQL instances desired|
-| ReadyReplicas | int32 | `readycount` | ReadyReplicas defines the no of MySQL instances that are ready|
-| CurrentReplicas | int32 | `currentcount` | CurrentReplicas defines the no of MySQL instances that are created|
-
-#### SvcStatus
-SvcStatus is a generic status holder for service
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| Link | string | `link` | Link to rsrc|
-| Name | string | `name` | service name|
-| Status | string | `status` | Status to rsrc|
-
-#### PdbStatus
-PdbStatus is a generic status holder for pdb
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| Link | string | `link` | Link to rsrc|
-| Name | string | `name` | Name of pdb|
-| Status | string | `status` | Status to rsrc|
-| CurrentHealthy | int32 | `currenthealthy` | currentHealthy|
-| DesiredHealthy | int32 | `desiredhealthy` | desiredHealthy|
-
-#### ResourceRequests
-ResourceRequests is used to describe the resource requests for a Redis pod.
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| CPU | string | `cpu` | Cpu is the amount of CPU requested for a pod.|
-| Memory | string | `memory` | Memory is the amount of RAM requested for a Pod.|
-| Disk | string | `disk` | Disk is the amount of Disk requested for a pod.|
-| DiskStorageClass | string | `diskStorageClass` | DiskStorageClass is the storage class for Disk.  Disk must be present or this field is invalid.|
-
-#### ResourceLimits
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| CPU | string | `cpu` | Cpu is the CPU limit for a pod.|
-| Memory | string | `memory` | Memory is the RAM limit for a pod.|
-
-
-
 ##  AirflowCluster
+
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| Spec  | AirflowClusterSpec | `spec` | |
+| Status | AirflowClusterStatus | `status` | |
+
+#### AirflowClusterSpec
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| NodeSelector | map[string]string | `nodeSelector` | [Selector](https://kubernetes.io/docs/concepts/configuration/assign-pod-node) for fitting pods to nodes whose labels match the selector |
+| Affinity | \*corev1.Affinity | `affinity` | Define scheduling constraints for pods. |
+| Annotations | map[string]string | `annotations` | Custom annotations to be added to the pods. |
+| Labels | map[string]string | `labels` | Custom labels to be added to the pods. |
+| Executor | string | `executor` | Airflow Executor desired: local,celery,kubernetes |
+| Redis | \*RedisSpec | `redis` | Spec for Redis component. |
+| Scheduler | \*SchedulerSpec | `scheduler` | Spec for Airflow Scheduler component. |
+| Worker | \*WorkerSpec | `worker` | Spec for Airflow Workers |
+| UI | \*AirflowUISpec | `ui` | Spec for Airflow UI component. |
+| Flower | \*FlowerSpec | `flower` | Spec for Flower component. |
+| DAGs | \*DagSpec | `dags` | Spec for DAG source and location |
+| AirflowBaseRef | \*corev1.LocalObjectReference | `airflowbase` | AirflowBaseRef is a reference to the AirflowBase CR |
+
+#### AirflowClusterStatus
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| ObservedGeneration | int64 | `observedGeneration"` | ObservedGeneration is the last generation of the AirflowCluster as observed by the controller. |
+| Redis | ComponentStatus | `redis` | Redis is the status of the Redis component |
+| Scheduler | SchedulerStatus | `scheduler` | Scheduler is the status of the Airflow Scheduler component |
+| Worker | ComponentStatus | `worker` | Worker is the status of the Workers |
+| UI | ComponentStatus | `ui` | UI is the status of the Airflow UI component |
+| Flower | ComponentStatus | `flower` | Flower is the status of the Airflow UI component |
+| LastError | string | `lasterror` | LastError |
+| Status | string | `status` | Status |
 
 #### RedisSpec
 | **Field** | **Type** | **json field** | **Info** |
@@ -202,6 +164,14 @@ ResourceRequests is used to describe the resource requests for a Redis pod.
 | Replicas | int32 | `replicas` | Replicas is the count of number of workers |
 | Resources | corev1.ResourceRequirements | `resources` | Resources is the resource requests and limits for the pods. |
 
+#### AirflowUISpec
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| Image | string | `image` | Image defines the AirflowUI Docker image.|
+| Version | string | `version` | Version defines the AirflowUI Docker image version.|
+| Replicas | int32 | `replicas` | Replicas defines the number of running Airflow UI instances in a cluster|
+| Resources | corev1.ResourceRequirements | `resources` | Resources is the resource requests and limits for the pods.|
+
 #### GCSSpec
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
@@ -227,22 +197,6 @@ ResourceRequests is used to describe the resource requests for a Redis pod.
 | Storage | \*StorageSpec | `storage` | Storage has s3 compatible storage spec for copying files from |
 | GCS | \*GCSSpec | `gcs` | Gcs config which uses storage spec |
 
-#### AirflowClusterSpec
-| **Field** | **Type** | **json field** | **Info** |
-| --- | --- | --- | --- |
-| NodeSelector | map[string]string | `nodeSelector` | [Selector](https://kubernetes.io/docs/concepts/configuration/assign-pod-node) for fitting pods to nodes whose labels match the selector |
-| Affinity | \*corev1.Affinity | `affinity` | Define scheduling constraints for pods. |
-| Annotations | map[string]string | `annotations` | Custom annotations to be added to the pods. |
-| Labels | map[string]string | `labels` | Custom labels to be added to the pods. |
-| Executor | string | `executor` | Airflow Executor desired: local,celery,kubernetes |
-| Redis | \*RedisSpec | `redis` | Spec for Redis component. |
-| Scheduler | \*SchedulerSpec | `scheduler` | Spec for Airflow Scheduler component. |
-| Worker | \*WorkerSpec | `worker` | Spec for Airflow Workers |
-| UI | \*AirflowUISpec | `ui` | Spec for Airflow UI component. |
-| Flower | \*FlowerSpec | `flower` | Spec for Flower component. |
-| DAGs | \*DagSpec | `dags` | Spec for DAG source and location |
-| AirflowBaseRef | \*corev1.LocalObjectReference | `airflowbase` | AirflowBaseRef is a reference to the AirflowBase CR |
-
 #### SchedulerStatus
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
@@ -250,22 +204,53 @@ ResourceRequests is used to describe the resource requests for a Redis pod.
 | DagCount | int32 | `dagcount` | DagCount is a count of number of Dags observed |
 | RunCount | int32 | `runcount` | RunCount is a count of number of Dag Runs observed |
 
-#### AirflowClusterStatus
+## Common
+
+#### ComponentStatus
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
-| ObservedGeneration | int64 | `observedGeneration"` | ObservedGeneration is the last generation of the AirflowCluster as observed by the controller. |
-| Redis | ComponentStatus | `redis` | Redis is the status of the Redis component |
-| Scheduler | SchedulerStatus | `scheduler` | Scheduler is the status of the Airflow Scheduler component |
-| Worker | ComponentStatus | `worker` | Worker is the status of the Workers |
-| UI | ComponentStatus | `ui` | UI is the status of the Airflow UI component |
-| Flower | ComponentStatus | `flower` | Flower is the status of the Airflow UI component |
-| LastError | string | `lasterror` | LastError |
-| Status | string | `status` | Status |
+| STS | []StsStatus | `sts` | StatefulSet status|
+| SVC | []SvcStatus | `svc` | Service status|
+| PDB | []PdbStatus | `pdb` | PDB status|
+| LastError | string | `lasterror` | LastError|
+| Status | string | `status` | Status|
 
-#### AirflowCluster
+#### StsStatus 
 | **Field** | **Type** | **json field** | **Info** |
 | --- | --- | --- | --- |
-| Spec  | AirflowClusterSpec | `spec` | |
-| Status | AirflowClusterStatus | `status` | |
+| Link | string | `link` | Link to sts|
+| Name | string | `name` | Name of sts|
+| Status | string | `status` | Status to rsrc|
+| Replicas | int32 | `replicas` | Replicas defines the no of MySQL instances desired|
+| ReadyReplicas | int32 | `readycount` | ReadyReplicas defines the no of MySQL instances that are ready|
+| CurrentReplicas | int32 | `currentcount` | CurrentReplicas defines the no of MySQL instances that are created|
 
+#### SvcStatus
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| Link | string | `link` | Link to rsrc|
+| Name | string | `name` | service name|
+| Status | string | `status` | Status to rsrc|
 
+#### PdbStatus
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| Link | string | `link` | Link to rsrc|
+| Name | string | `name` | Name of pdb|
+| Status | string | `status` | Status to rsrc|
+| CurrentHealthy | int32 | `currenthealthy` | currentHealthy|
+| DesiredHealthy | int32 | `desiredhealthy` | desiredHealthy|
+
+#### ResourceRequests
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| CPU | string | `cpu` | Cpu is the amount of CPU requested for a pod.|
+| Memory | string | `memory` | Memory is the amount of RAM requested for a Pod.|
+| Disk | string | `disk` | Disk is the amount of Disk requested for a pod.|
+| DiskStorageClass | string | `diskStorageClass` | DiskStorageClass is the storage class for Disk.  Disk must be present or this field is invalid.|
+
+#### ResourceLimits
+| **Field** | **Type** | **json field** | **Info** |
+| --- | --- | --- | --- |
+| CPU | string | `cpu` | Cpu is the CPU limit for a pod.|
+| Memory | string | `memory` | Memory is the RAM limit for a pod.|

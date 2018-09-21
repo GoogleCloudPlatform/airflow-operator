@@ -50,6 +50,29 @@ $ kubectl port-forward mcg-cluster-airflowui-0 8081:8080
 $ kubectl get airflowcluster/mcg-cluster -o yaml 
 ```
 
+#### Deploy Postgres based samples
+
+```bash
+# deploy base components first
+$ kubectl apply -f hack/sample/postgres-celery/base.yaml
+# after 30-60s deploy cluster components
+# using celery + git as DAG source
+$ kubectl apply -f hack/sample/postgres-celery/cluster.yaml
+# port forward to access the UI
+$ kubectl port-forward pc-cluster-airflowui-0 8080:8080
+# port forward to access the Flower
+$ kubectl port-forward pc-cluster-flower-0 5555:5555
+# get status of the CRs
+$ kubectl get airflowbase/pc-base -o yaml
+$ kubectl get airflowcluster/pc-cluster -o yaml
+
+# Against the same mc-base, we could deploy another cluster.
+# celery + gcs as DAG source (you need to update to point to your gcs bucket)
+$ kubectl apply -f hack/sample/mysql-celery-gcs/cluster.yaml
+$ kubectl port-forward mcg-cluster-airflowui-0 8081:8080
+$ kubectl get airflowcluster/mcg-cluster -o yaml
+```
+
 #### Running CloudSQL based samples
 CloudSQL(mysql)  needs to be setup on your project.
 A root password needs to be created for the CloudSQL.

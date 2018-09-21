@@ -17,24 +17,14 @@
 apiVersion: airflow.k8s.io/v1alpha1
 kind: AirflowCluster
 metadata:
-  name: cc-cluster
+  name: pl-cluster
 spec:
-  executor: Celery
-  redis:
-    operator: False
-  scheduler:
-    version: "1.10.0rc2"
+  executor: Local
   ui:
     replicas: 1
     version: "1.10.0rc2"
-  worker:
-    replicas: 2
+  scheduler:
     version: "1.10.0rc2"
-  dags:
-    subdir: "airflow/example_dags/"
-    git:
-      repo: "https://github.com/apache/incubator-airflow/"
-      once: true
-  database: SQLProxy
+  database: Postgres
   airflowbase:
-    name: cc-base
+    name: pc-base

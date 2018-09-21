@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,9 +35,10 @@ import (
 const (
 	ControllerVersion = "0.1"
 
-	PasswordCharSpace = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	LifecycleManaged  = "managed"
-	LifecycleReferred = "referred"
+	PasswordCharSpace         = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	PasswordCharSpacePostgres = "abcdefghijklmnopqrstuvwxyz0123456789"
+	LifecycleManaged          = "managed"
+	LifecycleReferred         = "referred"
 
 	ActionCheck  = "check"
 	ActionCreate = "create"
@@ -48,6 +50,7 @@ const (
 	LabelAirflowCRName             = "airflow-cr-name"
 	LabelAirflowComponent          = "airflow-component"
 	ValueAirflowComponentMySQL     = "mysql"
+	ValueAirflowComponentPostgres  = "postgres"
 	ValueAirflowComponentSQLProxy  = "sqlproxy"
 	ValueAirflowComponentSQL       = "sql"
 	ValueAirflowComponentUI        = "airflowui"
@@ -128,6 +131,18 @@ func RandomAlphanumericString(strlen int) []byte {
 	result := make([]byte, strlen)
 	for i := range result {
 		result[i] = PasswordCharSpace[random.Intn(len(PasswordCharSpace))]
+	}
+	return result
+}
+
+// RandomAlphanumericStringPostgres generates a random string for Postgres of some fixed length.
+func RandomAlphanumericStringPostgres(strlen int) []byte {
+	result := make([]byte, strlen)
+	for i := range result {
+		result[i] = PasswordCharSpacePostgres[random.Intn(len(PasswordCharSpacePostgres))]
+	}
+	for strings.Contains("0123456789", string(result[0])) {
+		result[0] = PasswordCharSpacePostgres[random.Intn(len(PasswordCharSpacePostgres))]
 	}
 	return result
 }
@@ -277,6 +292,10 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 			dagFolder = AirflowDagsBase + "/" + GCSSyncDestDir + "/" + sp.DAGs.DagSubdir
 		}
 	}
+	dbType := "mysql"
+	if r.Spec.Database == "Postgres" {
+		dbType = "postgres"
+	}
 	env := []corev1.EnvVar{
 		{Name: "EXECUTOR", Value: sp.Executor},
 		{Name: "SQL_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
@@ -284,7 +303,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 		{Name: "SQL_HOST", Value: sqlSvcName},
 		{Name: "SQL_USER", Value: sp.Scheduler.DBUser},
 		{Name: "SQL_DB", Value: sp.Scheduler.DBName},
-		{Name: "DB_TYPE", Value: "mysql"},
+		{Name: "DB_TYPE", Value: dbType},
 	}
 	if sp.Executor == ExecutorK8s {
 		env = append(env, []corev1.EnvVar{
@@ -364,6 +383,33 @@ CREATE USER IF NOT EXISTS '$(SQL_USER)'@'%' IDENTIFIED BY '$(SQL_PASSWORD)';
 GRANT ALL ON $(SQL_DB).* TO '$(SQL_USER)'@'%' ;
 FLUSH PRIVILEGES;
 EOSQL
+`},
+		},
+	}
+	ss.Spec.Template.Spec.InitContainers = append(containers, ss.Spec.Template.Spec.InitContainers...)
+}
+
+func (r *AirflowCluster) addPostgresUserDBContainer(ss *appsv1.StatefulSet) {
+	sqlRootSecret := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
+	sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
+	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
+	env := []corev1.EnvVar{
+		{Name: "SQL_ROOT_PASSWORD", ValueFrom: envFromSecret(sqlRootSecret, "rootpassword")},
+		{Name: "SQL_DB", Value: r.Spec.Scheduler.DBName},
+		{Name: "SQL_USER", Value: r.Spec.Scheduler.DBUser},
+		{Name: "SQL_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
+		{Name: "SQL_HOST", Value: sqlSvcName},
+		{Name: "DB_TYPE", Value: "postgres"},
+	}
+	containers := []corev1.Container{
+		{
+			Name:    "postgres-dbcreate",
+			Image:   defaultPostgresImage + ":" + defaultPostgresVersion,
+			Env:     env,
+			Command: []string{"/bin/bash"},
+			Args: []string{"-c", `
+PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREATE DATABASE $(SQL_DB)";
+PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREATE USER $(SQL_USER) WITH ENCRYPTED PASSWORD '$(SQL_PASSWORD)'; GRANT ALL PRIVILEGES ON DATABASE $(SQL_DB) TO $(SQL_USER)"
 `},
 		},
 	}
@@ -593,6 +639,159 @@ func (s *MySQLSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, er
 	}
 }
 
+// ------------------------------ POSTGRES  ---------------------------------------
+
+func (s *PostgresSpec) service(r *AirflowBase) *resources.Service {
+	return service(r, ValueAirflowComponentPostgres,
+		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		[]corev1.ServicePort{{Name: "postgres", Port: 5432}})
+}
+
+func (s *PostgresSpec) podDisruption(r *AirflowBase) *resources.PodDisruptionBudget {
+	return podDisruption(r, ValueAirflowComponentPostgres, "", "100%")
+}
+
+func (s *PostgresSpec) secret(r *AirflowBase) *resources.Secret {
+	name, labels, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", true)
+	return &resources.Secret{
+		Secret: &corev1.Secret{
+			ObjectMeta: r.getMeta(name, labels),
+			Data: map[string][]byte{
+				"password":     RandomAlphanumericString(16),
+				"rootpassword": RandomAlphanumericString(16),
+			},
+		},
+	}
+}
+
+func (s *PostgresSpec) sts(r *AirflowBase) *resources.StatefulSet {
+	sqlSecret, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
+	ss := sts(r, ValueAirflowComponentPostgres, "", true)
+	ss.Spec.Replicas = &s.Replicas
+	volName := "postgres-data"
+	if s.VolumeClaimTemplate != nil {
+		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.VolumeClaimTemplate}
+		volName = s.VolumeClaimTemplate.Name
+	} else {
+		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
+			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		}
+	}
+	ss.Spec.Template.Spec.Containers = []corev1.Container{
+		{
+			Name:  "postgres",
+			Image: s.Image + ":" + s.Version,
+			Env: []corev1.EnvVar{
+				{Name: "POSTGRES_DB", Value: "testdb"},
+				{Name: "POSTGRES_USER", Value: "airflow"},
+				{Name: "POSTGRES_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "rootpassword")},
+			},
+			Resources: s.Resources,
+			Ports: []corev1.ContainerPort{
+				{
+					Name:          "postgres",
+					ContainerPort: 5432,
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      volName,
+					MountPath: "/var/lib/postgres/data",
+				},
+			},
+			LivenessProbe: &corev1.Probe{
+				Handler: corev1.Handler{
+					Exec: &corev1.ExecAction{
+						Command: []string{"bash", "-c", "psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c SELECT 1"},
+					},
+				},
+				InitialDelaySeconds: 30,
+				PeriodSeconds:       20,
+				TimeoutSeconds:      5,
+			},
+			ReadinessProbe: &corev1.Probe{
+				Handler: corev1.Handler{
+					Exec: &corev1.ExecAction{
+						Command: []string{"bash", "-c", "psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c SELECT 1"},
+					},
+				},
+				InitialDelaySeconds: 10,
+				PeriodSeconds:       5,
+				TimeoutSeconds:      2,
+			},
+		},
+	}
+	return &resources.StatefulSet{StatefulSet: ss}
+}
+
+// ExpectedResources returns the list of resource/name for those resources created by
+// the operator for this spec and those resources referenced by this operator.
+// Mark resources as owned, referred
+func (s *PostgresSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+	r := rsrc.(*AirflowBase)
+	if s.Operator {
+		return nil
+	}
+	rsrcInfos := []ResourceInfo{
+		ResourceInfo{LifecycleManaged, s.secret(r), ""},
+		ResourceInfo{LifecycleManaged, s.service(r), ""},
+		ResourceInfo{LifecycleManaged, s.sts(r), ""},
+		ResourceInfo{LifecycleManaged, s.podDisruption(r), ""},
+	}
+	//if s.VolumeClaimTemplate != nil {
+	//	rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
+	//}
+	return rsrcInfos
+}
+
+// ObserveSelectors returns the list of resource/selecitos for those resources created by
+// the operator for this spec and those resources referenced by this operator.
+func (s *PostgresSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
+	r := rsrc.(*AirflowBase)
+	if s.Operator {
+		return nil
+	}
+	selector := selectorLabels(r, ValueAirflowComponentPostgres)
+	secretSelector := selectorLabels(r, ValueAirflowComponentPostgres)
+	rsrcSelectos := []ResourceSelector{
+		{&resources.StatefulSet{}, selector},
+		{&resources.Service{}, selector},
+		{&resources.Secret{}, secretSelector},
+		{&resources.PodDisruptionBudget{}, selector},
+	}
+	//if s.VolumeClaimTemplate != nil {
+	//	rsrcSelectos = append(rsrcSelectos, ResourceSelector{s.VolumeClaimTemplate, nil})
+	//}
+	return rsrcSelectos
+}
+
+// Differs returns true if the resource needs to be updated
+func (s *PostgresSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
+	switch expected.Obj.(type) {
+	case *resources.Secret:
+		// Dont update a secret
+		return false
+	case *resources.Service:
+		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
+		expected.Obj.(*resources.Service).Spec.ClusterIP = observed.Obj.(*resources.Service).Spec.ClusterIP
+	case *resources.PodDisruptionBudget:
+		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
+	}
+	return true
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *PostgresSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
+	status := rsrc.(*AirflowBaseStatus)
+	status.Postgres = ComponentStatus{}
+	if s != nil {
+		status.Postgres.update(reconciled, err)
+		if status.Postgres.Status != StatusReady {
+			status.Status = StatusInProgress
+		}
+	}
+}
+
 // ------------------------------ Airflow UI ---------------------------------------
 
 func (s *AirflowUISpec) secret(r *AirflowCluster) *resources.Secret {
@@ -699,7 +898,11 @@ func (s *AirflowUISpec) sts(r *AirflowCluster) *resources.StatefulSet {
 	}
 
 	r.addAirflowContainers(ss, containers, volName)
-	r.addMySQLUserDBContainer(ss)
+	if r.Spec.Database != "Postgres" {
+		r.addMySQLUserDBContainer(ss)
+	} else {
+		r.addPostgresUserDBContainer(ss)
+	}
 	return &resources.StatefulSet{StatefulSet: ss}
 }
 

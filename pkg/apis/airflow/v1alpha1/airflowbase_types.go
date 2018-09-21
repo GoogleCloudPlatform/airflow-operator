@@ -22,22 +22,25 @@ import (
 
 // defaults and constant strings
 const (
-	defaultMySQLImage      = "mysql"
-	defaultMySQLVersion    = "5.7"
-	defaultUIImage         = "gcr.io/airflow-operator/airflow"
-	defaultUIVersion       = "1.10.0rc2"
-	defaultNFSVersion      = "0.8"
-	defaultNFSImage        = "k8s.gcr.io/volume-nfs"
-	defaultSQLProxyImage   = "gcr.io/cloud-airflow-public/airflow-sqlproxy"
-	defaultSQLProxyVersion = "1.8.0"
-	defaultSchedule        = "0 0 0 ? * * *`" // daily@midnight
-	defaultMySQLReplicas   = 1
-	defaultOperator        = false
-	defaultStorageProvider = "s3"
-	providerS3             = "s3"
-	StatusReady            = "Ready"
-	StatusInProgress       = "InProgress"
-	StatusDisabled         = "Disabled"
+	defaultMySQLImage       = "mysql"
+	defaultMySQLVersion     = "5.7"
+	defaultPostgresImage    = "postgres"
+	defaultPostgresVersion  = "9.5"
+	defaultUIImage          = "gcr.io/airflow-operator/airflow"
+	defaultUIVersion        = "1.10.0rc2"
+	defaultNFSVersion       = "0.8"
+	defaultNFSImage         = "k8s.gcr.io/volume-nfs"
+	defaultSQLProxyImage    = "gcr.io/cloud-airflow-public/airflow-sqlproxy"
+	defaultSQLProxyVersion  = "1.8.0"
+	defaultSchedule         = "0 0 0 ? * * *`" // daily@midnight
+	defaultMySQLReplicas    = 1
+	defaultPostgresReplicas = 1
+	defaultOperator         = false
+	defaultStorageProvider  = "s3"
+	providerS3              = "s3"
+	StatusReady             = "Ready"
+	StatusInProgress        = "InProgress"
+	StatusDisabled          = "Disabled"
 )
 
 // +genclient
@@ -64,7 +67,10 @@ type AirflowBaseStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration"`
 	// MySQL is the status of the MySQL component
 	// +optional
-	MySQL ComponentStatus `json:"mysql,omitempty"`
+	MySQL ComponentStatus `json:"database:mysql,omitempty"`
+	// Postgres is the status of the Postgres component
+	// +optional
+	Postgres ComponentStatus `json:"database:postgres,omitempty"`
 	// UI is the status of the Airflow UI component
 	// +optional
 	UI ComponentStatus `json:"ui,omitempty"`
@@ -73,7 +79,7 @@ type AirflowBaseStatus struct {
 	Storage ComponentStatus `json:"storage,omitempty"`
 	// SQLProxy is the status of the SQLProxy component
 	// +optional
-	SQLProxy ComponentStatus `json:"sqlproxy,omitempty"`
+	SQLProxy ComponentStatus `json:"database:sqlproxy,omitempty"`
 	// LastError
 	LastError string `json:"lasterror,omitempty"`
 	// Status to rsrc
@@ -220,16 +226,69 @@ type AirflowBaseSpec struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	// Spec for MySQL component.
 	// +optional
-	MySQL *MySQLSpec `json:"mysql,omitempty"`
+	Database *DatabaseSpec `json:"database,omitempty"`
 	// Spec for NFS component.
 	// +optional
 	Storage *NFSStoreSpec `json:"storage,omitempty"`
 	// Spec for Airflow UI component.
 	// +optional
 	UI *AirflowUISpec `json:"ui,omitempty"`
-	// Spec for SQLProxy component. Ignored if SQL(MySQLSpec) is specified.
-	// +optional
+}
+
+// DatabaseSpec defines the attributes and desired state of Database Component
+type DatabaseSpec struct {
+	MySQL    *MySQLSpec    `json:"mysql,omitempty"`
 	SQLProxy *SQLProxySpec `json:"sqlproxy,omitempty"`
+	Postgres *PostgresSpec `json:"postgres,omitempty"`
+}
+
+func (s *DatabaseSpec) validate(fp *field.Path) field.ErrorList {
+	errs := field.ErrorList{}
+	if s == nil {
+		return errs
+	}
+	if s.MySQL == nil && s.SQLProxy == nil && s.Postgres == nil {
+		errs = append(errs, field.Required(fp.Child("database"), "Either MySQL or SQLProxy is required"))
+	}
+	return errs
+}
+
+// PostgresSpec defines the attributes and desired state of Postgres Component
+// TODO - minimum spec needed .. for now it is version: ""
+// need to consider empty mysql
+type PostgresSpec struct {
+	// Image defines the Postgres Docker image name
+	// +optional
+	Image string `json:"image"`
+	// Version defines the Postgres Docker image version
+	// +optional
+	Version string `json:"version"`
+	// Replicas defines the number of running MySQL instances in a cluster
+	// +optional
+	Replicas int32 `json:"replicas,omitempty"`
+	// VolumeClaimTemplate allows a user to specify volume claim for MySQL Server files
+	// +optional
+	VolumeClaimTemplate *corev1.PersistentVolumeClaim `json:"volumeClaimTemplate,omitempty"`
+	// Flag when True generates MySQLOperator CustomResource to be handled by MySQL Operator
+	// If False, a StatefulSet with 1 replica is created (not for production setups)
+	// +optional
+	Operator bool `json:"operator,omitempty"`
+	// Resources is the resource requests and limits for the pods.
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Options command line options for mysql
+	Options map[string]string
+}
+
+func (s *PostgresSpec) validate(fp *field.Path) field.ErrorList {
+	errs := field.ErrorList{}
+	if s == nil {
+		return errs
+	}
+	if s.Operator == true {
+		errs = append(errs, field.Invalid(fp.Child("operator"), "", "Operator is not supported in this version"))
+	}
+
+	return errs
 }
 
 // MySQLSpec defines the attributes and desired state of MySQL Component
@@ -491,26 +550,37 @@ type ResourceLimits struct {
 
 // ApplyDefaults the AirflowBase
 func (b *AirflowBase) ApplyDefaults() {
-	if b.Spec.MySQL != nil {
-		if b.Spec.MySQL.Replicas == 0 {
-			b.Spec.MySQL.Replicas = defaultMySQLReplicas
+	if b.Spec.Database != nil && b.Spec.Database.MySQL != nil {
+		if b.Spec.Database.MySQL.Replicas == 0 {
+			b.Spec.Database.MySQL.Replicas = defaultMySQLReplicas
 		}
-		if b.Spec.MySQL.Image == "" {
-			b.Spec.MySQL.Image = defaultMySQLImage
+		if b.Spec.Database.MySQL.Image == "" {
+			b.Spec.Database.MySQL.Image = defaultMySQLImage
 		}
-		if b.Spec.MySQL.Version == "" {
-			b.Spec.MySQL.Version = defaultMySQLVersion
+		if b.Spec.Database.MySQL.Version == "" {
+			b.Spec.Database.MySQL.Version = defaultMySQLVersion
 		}
-		if b.Spec.MySQL.Backup != nil {
-			if b.Spec.MySQL.Backup.Storage.StorageProvider == "" {
-				b.Spec.MySQL.Backup.Storage.StorageProvider = defaultStorageProvider
+		if b.Spec.Database.MySQL.Backup != nil {
+			if b.Spec.Database.MySQL.Backup.Storage.StorageProvider == "" {
+				b.Spec.Database.MySQL.Backup.Storage.StorageProvider = defaultStorageProvider
 			}
-			if b.Spec.MySQL.Backup.Schedule == "" {
-				b.Spec.MySQL.Backup.Schedule = defaultSchedule
+			if b.Spec.Database.MySQL.Backup.Schedule == "" {
+				b.Spec.Database.MySQL.Backup.Schedule = defaultSchedule
 			}
-			if b.Spec.MySQL.Backup.Storage.StorageProvider == "" {
-				b.Spec.MySQL.Backup.Storage.StorageProvider = defaultStorageProvider
+			if b.Spec.Database.MySQL.Backup.Storage.StorageProvider == "" {
+				b.Spec.Database.MySQL.Backup.Storage.StorageProvider = defaultStorageProvider
 			}
+		}
+	}
+	if b.Spec.Database != nil && b.Spec.Database.Postgres != nil {
+		if b.Spec.Database.Postgres.Replicas == 0 {
+			b.Spec.Database.Postgres.Replicas = defaultPostgresReplicas
+		}
+		if b.Spec.Database.Postgres.Image == "" {
+			b.Spec.Database.Postgres.Image = defaultPostgresImage
+		}
+		if b.Spec.Database.Postgres.Version == "" {
+			b.Spec.Database.Postgres.Version = defaultPostgresVersion
 		}
 	}
 	if b.Spec.UI != nil {
@@ -529,12 +599,12 @@ func (b *AirflowBase) ApplyDefaults() {
 			b.Spec.Storage.Version = defaultNFSVersion
 		}
 	}
-	if b.Spec.SQLProxy != nil {
-		if b.Spec.SQLProxy.Image == "" {
-			b.Spec.SQLProxy.Image = defaultSQLProxyImage
+	if b.Spec.Database != nil && b.Spec.Database.SQLProxy != nil {
+		if b.Spec.Database.SQLProxy.Image == "" {
+			b.Spec.Database.SQLProxy.Image = defaultSQLProxyImage
 		}
-		if b.Spec.SQLProxy.Version == "" {
-			b.Spec.SQLProxy.Version = defaultSQLProxyVersion
+		if b.Spec.Database.SQLProxy.Version == "" {
+			b.Spec.Database.SQLProxy.Version = defaultSQLProxyVersion
 		}
 	}
 }
@@ -544,15 +614,24 @@ func (b *AirflowBase) Validate() error {
 	errs := field.ErrorList{}
 	spec := field.NewPath("spec")
 
-	errs = append(errs, b.Spec.MySQL.validate(spec.Child("mysql"))...)
+	errs = append(errs, b.Spec.Database.validate(spec.Child("database"))...)
 	errs = append(errs, b.Spec.UI.validate(spec.Child("ui"))...)
 	errs = append(errs, b.Spec.Storage.validate(spec.Child("storage"))...)
-	errs = append(errs, b.Spec.SQLProxy.validate(spec.Child("sqlproxy"))...)
 
-	if b.Spec.MySQL == nil && b.Spec.SQLProxy == nil {
-		errs = append(errs, field.Required(spec.Child("mysql"), "Either MySQL or SQLProxy is required"))
-		errs = append(errs, field.Required(spec.Child("sqlproxy"), "Either MySQL or SQLProxy is required"))
+	if b.Spec.Database == nil || (b.Spec.Database != nil && b.Spec.Database.MySQL == nil && b.Spec.Database.Postgres == nil && b.Spec.Database.SQLProxy == nil) {
+		errs = append(errs, field.Required(spec.Child("database"), "Either MySQL or Postgres or SQLProxy is required"))
 	}
+
+	if b.Spec.Database != nil {
+		postgresAndMySQL := b.Spec.Database.Postgres != nil && b.Spec.Database.MySQL != nil
+		postgresAndSQLProxy := b.Spec.Database.Postgres != nil && b.Spec.Database.SQLProxy != nil
+		mysqlAndSQLProxy := b.Spec.Database.MySQL != nil && b.Spec.Database.SQLProxy != nil
+		allDatabases := b.Spec.Database.Postgres != nil && b.Spec.Database.MySQL != nil && b.Spec.Database.SQLProxy != nil
+		if allDatabases || postgresAndMySQL || postgresAndSQLProxy || mysqlAndSQLProxy {
+			errs = append(errs, field.Required(spec.Child("database"), "Only MySQL or Postgres or SQLProxy can be declared"))
+		}
+	}
+
 	return errs.ToAggregate()
 }
 
@@ -560,8 +639,11 @@ func (b *AirflowBase) Validate() error {
 func (b *AirflowBase) Components() map[string]ComponentHandle {
 	var c = map[string]ComponentHandle{}
 
-	if b.Spec.MySQL != nil {
-		c["MySQL"] = b.Spec.MySQL
+	if b.Spec.Database.MySQL != nil {
+		c["MySQL"] = b.Spec.Database.MySQL
+	}
+	if b.Spec.Database.Postgres != nil {
+		c["Postgres"] = b.Spec.Database.Postgres
 	}
 	if b.Spec.UI != nil {
 		c["UI"] = b.Spec.UI
@@ -569,8 +651,8 @@ func (b *AirflowBase) Components() map[string]ComponentHandle {
 	if b.Spec.Storage != nil {
 		c["Storage"] = b.Spec.Storage
 	}
-	if b.Spec.SQLProxy != nil {
-		c["SQLProxy"] = b.Spec.SQLProxy
+	if b.Spec.Database.SQLProxy != nil {
+		c["SQLProxy"] = b.Spec.Database.SQLProxy
 	}
 	return c
 }
@@ -581,7 +663,7 @@ func (b *AirflowBase) StatusDiffers(new AirflowBaseStatus) bool {
 }
 
 // NewAirflowBase return a defaults filled AirflowBase object
-func NewAirflowBase(name, namespace string, mysql, storage bool) *AirflowBase {
+func NewAirflowBase(name, namespace string, databaseType int, storage bool) *AirflowBase {
 	b := AirflowBase{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -592,11 +674,14 @@ func NewAirflowBase(name, namespace string, mysql, storage bool) *AirflowBase {
 		},
 	}
 	b.Spec = AirflowBaseSpec{}
-	if mysql {
-		b.Spec.MySQL = &MySQLSpec{}
+	if databaseType == 0 {
+		b.Spec.Database.MySQL = &MySQLSpec{}
 	}
-	if !mysql {
-		b.Spec.SQLProxy = &SQLProxySpec{}
+	if databaseType == 1 {
+		b.Spec.Database.Postgres = &PostgresSpec{}
+	}
+	if databaseType == 2 {
+		b.Spec.Database.SQLProxy = &SQLProxySpec{}
 	}
 	if storage {
 		b.Spec.Storage = &NFSStoreSpec{}

@@ -19,7 +19,8 @@ kind: AirflowBase
 metadata:
   name: mc-base
 spec:
-  mysql:
-    operator: False
+  database:
+    mysql:
+      operator: False
   storage:
     version: ""

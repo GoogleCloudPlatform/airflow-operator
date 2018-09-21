@@ -36,7 +36,7 @@ const (
 	ControllerVersion = "0.1"
 
 	PasswordCharSpace         = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	PasswordCharSpacePostgres = "abcdefghijklmnopqrstuvwxyz0123456789"
+	PasswordCharSpacePostgres = "abcdefghijklmnopqrstuvwxyz0123456789" // As Postgres would lowercase database/role name
 	LifecycleManaged          = "managed"
 	LifecycleReferred         = "referred"
 
@@ -141,6 +141,7 @@ func RandomAlphanumericStringPostgres(strlen int) []byte {
 	for i := range result {
 		result[i] = PasswordCharSpacePostgres[random.Intn(len(PasswordCharSpacePostgres))]
 	}
+	// As Postgres doesn't allow database/role name begins with number
 	for strings.Contains("0123456789", string(result[0])) {
 		result[0] = PasswordCharSpacePostgres[random.Intn(len(PasswordCharSpacePostgres))]
 	}

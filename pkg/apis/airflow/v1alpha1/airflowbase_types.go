@@ -263,13 +263,13 @@ type PostgresSpec struct {
 	// Version defines the Postgres Docker image version
 	// +optional
 	Version string `json:"version"`
-	// Replicas defines the number of running MySQL instances in a cluster
+	// Replicas defines the number of running Postgres instances in a cluster
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
-	// VolumeClaimTemplate allows a user to specify volume claim for MySQL Server files
+	// VolumeClaimTemplate allows a user to specify volume claim for Postgres Server files
 	// +optional
 	VolumeClaimTemplate *corev1.PersistentVolumeClaim `json:"volumeClaimTemplate,omitempty"`
-	// Flag when True generates MySQLOperator CustomResource to be handled by MySQL Operator
+	// Flag when True generates PostgresOperator CustomResource to be handled by Postgres Operator
 	// If False, a StatefulSet with 1 replica is created (not for production setups)
 	// +optional
 	Operator bool `json:"operator,omitempty"`

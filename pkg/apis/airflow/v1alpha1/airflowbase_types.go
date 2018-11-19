@@ -26,6 +26,7 @@ const (
 	defaultMySQLVersion    = "5.7"
 	defaultUIImage         = "gcr.io/airflow-operator/airflow"
 	defaultUIVersion       = "1.10.0rc2"
+	defaultFlowerVersion   = "1.10.0rc2"
 	defaultNFSVersion      = "0.8"
 	defaultNFSImage        = "k8s.gcr.io/volume-nfs"
 	defaultSQLProxyImage   = "gcr.io/cloud-airflow-public/airflow-sqlproxy"

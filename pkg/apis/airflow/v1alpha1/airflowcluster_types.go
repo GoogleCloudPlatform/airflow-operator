@@ -341,7 +341,7 @@ func (b *AirflowCluster) ApplyDefaults() {
 		if b.Spec.UI.Version == "" {
 			b.Spec.UI.Version = defaultUIVersion
 		}
-		if b.Spec.UI.Replicas == 1 {
+		if b.Spec.UI.Replicas == 0 {
 			b.Spec.UI.Replicas = 1
 		}
 	}
@@ -350,7 +350,7 @@ func (b *AirflowCluster) ApplyDefaults() {
 			b.Spec.Flower.Image = defaultFlowerImage
 		}
 		if b.Spec.Flower.Version == "" {
-			b.Spec.Flower.Version = defaultFlowerImage
+			b.Spec.Flower.Version = defaultFlowerVersion
 		}
 		if b.Spec.Flower.Replicas == 0 {
 			b.Spec.Flower.Replicas = 1

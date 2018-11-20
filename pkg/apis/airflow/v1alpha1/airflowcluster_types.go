@@ -35,18 +35,12 @@ const (
 	ExecutorSequential      = "Sequential"
 	ExecutorK8s             = "Kubernetes"
 	defaultExecutor         = ExecutorLocal
-	DatabaseMySQL           = "MySQL"
-	DatabasePostgres        = "Postgres"
-	DatabaseSQLProxy        = "SQLProxy"
-	defaultDatabase         = DatabaseMySQL
 	defaultBranch           = "master"
 	defaultWorkerVersion    = "1.10.0rc2"
 	defaultSchedulerVersion = "1.10.0rc2"
 )
 
 var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCelery, ExecutorK8s}
-
-var allowedDatabases = []string{DatabaseMySQL, DatabasePostgres, DatabaseSQLProxy}
 
 // RedisSpec defines the attributes and desired state of Redis component
 type RedisSpec struct {
@@ -257,8 +251,6 @@ type AirflowClusterSpec struct {
 	// Spec for DAG source and location
 	// +optional
 	DAGs *DagSpec `json:"dags,omitempty"`
-	// Spec for Database type
-	Database string `json:"database,omitempty"`
 	// AirflowBaseRef is a reference to the AirflowBase CR
 	AirflowBaseRef *corev1.LocalObjectReference `json:"airflowbase,omitempty"`
 }
@@ -337,15 +329,9 @@ func (b *AirflowCluster) ApplyDefaults() {
 		}
 		if b.Spec.Scheduler.DBName == "" {
 			b.Spec.Scheduler.DBName = string(RandomAlphanumericString(16))
-			if b.Spec.Database == DatabasePostgres {
-				b.Spec.Scheduler.DBName = string(RandomAlphanumericStringPostgres(16))
-			}
 		}
 		if b.Spec.Scheduler.DBUser == "" {
 			b.Spec.Scheduler.DBUser = string(RandomAlphanumericString(16))
-			if b.Spec.Database == DatabasePostgres {
-				b.Spec.Scheduler.DBUser = string(RandomAlphanumericStringPostgres(16))
-			}
 		}
 	}
 	if b.Spec.UI != nil {
@@ -391,9 +377,6 @@ func (b *AirflowCluster) ApplyDefaults() {
 			}
 		}
 	}
-	if b.Spec.Database == "" {
-		b.Spec.Database = defaultDatabase
-	}
 }
 
 // Validate the AirflowCluster
@@ -437,16 +420,6 @@ func (b *AirflowCluster) Validate() error {
 		}
 	}
 
-	allowed = false
-	for _, database := range allowedDatabases {
-		if database == b.Spec.Database {
-			allowed = true
-		}
-	}
-	if !allowed {
-		errs = append(errs, field.NotSupported(spec.Child("database"), b.Spec.Database, allowedDatabases))
-	}
-
 	if b.Spec.AirflowBaseRef == nil {
 		errs = append(errs, field.Required(spec.Child("airflowbase"), "airflowbase reference missing"))
 	} else if b.Spec.AirflowBaseRef.Name == "" {
@@ -484,7 +457,7 @@ func (b *AirflowCluster) StatusDiffers(new AirflowClusterStatus) bool {
 }
 
 // NewAirflowCluster return a defaults filled AirflowCluster object
-func NewAirflowCluster(name, namespace, executor, database, base string, dags *DagSpec) *AirflowCluster {
+func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *AirflowCluster {
 	c := AirflowCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -502,7 +475,6 @@ func NewAirflowCluster(name, namespace, executor, database, base string, dags *D
 		c.Spec.Flower = &FlowerSpec{}
 	}
 	c.Spec.DAGs = dags
-	c.Spec.Database = database
 	c.Spec.AirflowBaseRef = &corev1.LocalObjectReference{Name: base}
 	c.ApplyDefaults()
 	return &c

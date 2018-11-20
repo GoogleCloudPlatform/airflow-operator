@@ -57,7 +57,7 @@ var _ = Describe("AirflowBase controller", func() {
 			}
 
 			// Create the instance
-			instance.Spec.Database = &DatabaseSpec{MySQL: &MySQLSpec{Operator: false}}
+			instance.Spec.MySQL = &MySQLSpec{Operator: false}
 			client = cs.AirflowV1alpha1().AirflowBases("default")
 			_, err := client.Create(&instance)
 			Expect(err).ShouldNot(HaveOccurred())

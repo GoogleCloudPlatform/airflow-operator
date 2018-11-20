@@ -18,10 +18,9 @@ kind: AirflowBase
 metadata:
   name: cc-base
 spec:
-  database:
-    sqlproxy:
-      project: kubeflow-193622
-      region: us-central1
-      instance: testsql-cluster
+  sqlproxy:
+          project: kubeflow-193622
+          region: us-central1
+          instance: testsql-cluster
   storage:
     version: ""

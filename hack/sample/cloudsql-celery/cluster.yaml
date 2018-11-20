@@ -35,6 +35,5 @@ spec:
     git:
       repo: "https://github.com/apache/incubator-airflow/"
       once: true
-  database: SQLProxy
   airflowbase:
     name: cc-base

@@ -25,6 +25,5 @@ spec:
     version: "1.10.0rc2"
   scheduler:
     version: "1.10.0rc2"
-  database: Postgres
   airflowbase:
     name: pc-base

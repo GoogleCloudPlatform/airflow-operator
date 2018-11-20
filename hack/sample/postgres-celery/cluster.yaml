@@ -38,6 +38,5 @@ spec:
     git:
       repo: "https://github.com/apache/incubator-airflow/"
       once: true
-  database: Postgres
   airflowbase:
     name: pc-base

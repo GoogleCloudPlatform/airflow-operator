@@ -126,14 +126,14 @@ func operatorSts() *appsv1.StatefulSet {
 	}
 }
 
-func airflowBase(test string, databaseType int) *airflowv1alpha1.AirflowBase {
-	ab := airflowv1alpha1.NewAirflowBase(test, namespace, databaseType, true)
+func airflowBase(test, database string) *airflowv1alpha1.AirflowBase {
+	ab := airflowv1alpha1.NewAirflowBase(test, namespace, database, true)
 	ab.ObjectMeta.Labels["createdby"] = "e2etest"
 	return ab
 }
 
-func airflowCluster(test, base, executor, database string, dags *airflowv1alpha1.DagSpec) *airflowv1alpha1.AirflowCluster {
-	ac := airflowv1alpha1.NewAirflowCluster(test, namespace, executor, database, base, dags)
+func airflowCluster(test, base, executor string, dags *airflowv1alpha1.DagSpec) *airflowv1alpha1.AirflowCluster {
+	ac := airflowv1alpha1.NewAirflowCluster(test, namespace, executor, base, dags)
 	ac.ObjectMeta.Labels["createdby"] = "e2etest"
 	ac.ObjectMeta.Labels["test"] = test
 	return ac
@@ -178,11 +178,11 @@ func waitAirflowCluster(k8sclient *kubernetes.Clientset, aclient *typedairflow.A
 	return
 }
 
-func waitAirflowBase(k8sclient *kubernetes.Clientset, aclient *typedairflow.AirflowV1alpha1Client, testname string, databaseType int) {
-	if databaseType == 0 {
+func waitAirflowBase(k8sclient *kubernetes.Clientset, aclient *typedairflow.AirflowV1alpha1Client, testname string, database string) {
+	if database == airflowv1alpha1.DatabaseMySQL {
 		waitForSecret(k8sclient, testname, airflowv1alpha1.ValueAirflowComponentSQL)
 		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentMySQL)
-	} else if databaseType == 1 {
+	} else if database == airflowv1alpha1.DatabasePostgres {
 		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentPostgres)
 	} else {
 		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentSQLProxy)
@@ -343,7 +343,9 @@ var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func()
 	AfterEach(func() {})
 
 	// --------------- Tests -------------------------
-	It("should create airflow-base using mysql and nfs components", func() { basem = testBaseComponentCreation(0, k8sClient, airflowClient) })
+	It("should create airflow-base using mysql and nfs components", func() {
+		basem = testBaseComponentCreation(airflowv1alpha1.DatabaseMySQL, k8sClient, airflowClient)
+	})
 
 	// airflowBase() needs to inject sqlproxy config
 	//It("should create airflow-base using sqlproxy and nfs components", func() { testBaseComponentCreation(false, k8sClient, airflowClient) })
@@ -361,24 +363,23 @@ var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func()
 
 })
 
-
 // Step 1: create AirflowBase object with storage and mysql/sqlproxy
 // Step 2: wait for mysql/sqlproxy StatefulSet and nfs StatefulSet to become ready all pods have to be available
 // Step 3: verify for mysql, the root password secret should be created, Mysql and nfs stateful sets should have 1 pods each
-func testBaseComponentCreation(databaseType int, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client) string {
+func testBaseComponentCreation(database string, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client) string {
 	testname := "base"
-	if databaseType == 0 {
-		testname += "-mysql"
-	} else if databaseType == 1 {
-		testname += "-posgres"
+	if database == airflowv1alpha1.DatabaseMySQL {
+		testname += "-m"
+	} else if database == airflowv1alpha1.DatabasePostgres {
+		testname += "-p"
 	} else {
-		testname += "-sqlp"
+		testname += "-s"
 	}
-	_, err := airflowClient.AirflowBases(namespace).Create(airflowBase(testname, databaseType))
+	_, err := airflowClient.AirflowBases(namespace).Create(airflowBase(testname, database))
 	Expect(err).NotTo(HaveOccurred(), "failed to create AirflowBase %q: %v", testname, err)
 
 	By(fmt.Sprintf("verifying AirflowBase %s components are created", testname))
-	waitAirflowBase(k8sClient, airflowClient, testname, databaseType)
+	waitAirflowBase(k8sClient, airflowClient, testname, database)
 
 	return testname
 }
@@ -393,8 +394,8 @@ func testBaseComponentCreation(databaseType int, k8sClient *kubernetes.Clientset
 //     Scheduler, ui and workers all synced the DAGs from git repo
 func testClusterComponentCreation(base, executor, database string, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client, dags *airflowv1alpha1.DagSpec) {
 	testname := "cluster-cmg"
-	_, err := airflowClient.AirflowClusters(namespace).Create(airflowCluster(testname, base, executor, database, dags))
-	Expect(err).NotTo(o.HaveOccurred(), "failed to create AirflowCluster %q: %v", testname, err)
+	_, err := airflowClient.AirflowClusters(namespace).Create(airflowCluster(testname, base, executor, dags))
+	Expect(err).NotTo(HaveOccurred(), "failed to create AirflowCluster %q: %v", testname, err)
 
 	By(fmt.Sprintf("verifying AirflowCluster %s components are created", testname))
 	waitAirflowCluster(k8sClient, airflowClient, testname, executor)

@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"math/rand"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -35,10 +34,10 @@ import (
 const (
 	ControllerVersion = "0.1"
 
-	PasswordCharSpace         = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	PasswordCharSpacePostgres = "abcdefghijklmnopqrstuvwxyz0123456789" // As Postgres would lowercase database/role name
-	LifecycleManaged          = "managed"
-	LifecycleReferred         = "referred"
+	PasswordCharNumSpace = "abcdefghijklmnopqrstuvwxyz0123456789"
+	PasswordCharSpace    = "abcdefghijklmnopqrstuvwxyz"
+	LifecycleManaged     = "managed"
+	LifecycleReferred    = "referred"
 
 	ActionCheck  = "check"
 	ActionCreate = "create"
@@ -130,21 +129,9 @@ func optionsToString(options map[string]string, prefix string) string {
 func RandomAlphanumericString(strlen int) []byte {
 	result := make([]byte, strlen)
 	for i := range result {
-		result[i] = PasswordCharSpace[random.Intn(len(PasswordCharSpace))]
+		result[i] = PasswordCharNumSpace[random.Intn(len(PasswordCharNumSpace))]
 	}
-	return result
-}
-
-// RandomAlphanumericStringPostgres generates a random string for Postgres of some fixed length.
-func RandomAlphanumericStringPostgres(strlen int) []byte {
-	result := make([]byte, strlen)
-	for i := range result {
-		result[i] = PasswordCharSpacePostgres[random.Intn(len(PasswordCharSpacePostgres))]
-	}
-	// As Postgres doesn't allow database/role name begins with number
-	for strings.Contains("0123456789", string(result[0])) {
-		result[0] = PasswordCharSpacePostgres[random.Intn(len(PasswordCharSpacePostgres))]
-	}
+	result[0] = PasswordCharSpace[random.Intn(len(PasswordCharSpace))]
 	return result
 }
 
@@ -294,9 +281,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 		}
 	}
 	dbType := "mysql"
-	if r.Spec.Database == "Postgres" {
-		dbType = "postgres"
-	}
+	// TODO dbType = "postgres"
 	env := []corev1.EnvVar{
 		{Name: "EXECUTOR", Value: sp.Executor},
 		{Name: "SQL_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
@@ -899,11 +884,8 @@ func (s *AirflowUISpec) sts(r *AirflowCluster) *resources.StatefulSet {
 	}
 
 	r.addAirflowContainers(ss, containers, volName)
-	if r.Spec.Database != "Postgres" {
-		r.addMySQLUserDBContainer(ss)
-	} else {
-		r.addPostgresUserDBContainer(ss)
-	}
+	r.addMySQLUserDBContainer(ss)
+	//	r.addPostgresUserDBContainer(ss)
 	return &resources.StatefulSet{StatefulSet: ss}
 }
 

@@ -19,8 +19,7 @@ kind: AirflowBase
 metadata:
   name: pc-base
 spec:
-  database:
-    postgres:
-      operator: False
+  postgres:
+    operator: False
   storage:
     version: ""

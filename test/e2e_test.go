@@ -144,6 +144,7 @@ func setToListSelector(set map[string]string) metav1.ListOptions {
 }
 
 func waitAirflowCluster(k8sclient *kubernetes.Clientset, aclient *typedairflow.AirflowV1alpha1Client, testname, executor string) {
+	waitForSecret(k8sclient, testname, airflowv1alpha1.ValueAirflowComponentUI)
 	waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentScheduler)
 	waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentUI)
 	if executor == airflowv1alpha1.ExecutorCelery {
@@ -179,6 +180,7 @@ func waitAirflowCluster(k8sclient *kubernetes.Clientset, aclient *typedairflow.A
 
 func waitAirflowBase(k8sclient *kubernetes.Clientset, aclient *typedairflow.AirflowV1alpha1Client, testname string, databaseType int) {
 	if databaseType == 0 {
+		waitForSecret(k8sclient, testname, airflowv1alpha1.ValueAirflowComponentSQL)
 		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentMySQL)
 	} else if databaseType == 1 {
 		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentPostgres)
@@ -237,6 +239,26 @@ func waitSts(client *kubernetes.Clientset, testname, rsrc, component string) {
 		return sts.Status.ReadyReplicas == *sts.Spec.Replicas && sts.Status.CurrentReplicas == *sts.Spec.Replicas, nil
 	})
 	Expect(err).NotTo(HaveOccurred(), "error waiting for sts to be ready: %s, %v", component, err)
+
+	return
+}
+
+func rsrcName(name, component string) string {
+	return name + "-" + component
+}
+
+func waitForSecret(client *kubernetes.Clientset, name, component string) {
+	var err error
+	secretClient := client.CoreV1().Secrets(namespace)
+
+	err = wait.PollImmediate(pollinterval, 1*time.Minute, func() (bool, error) {
+		_, err = secretClient.Get(rsrcName(name, component), metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+	Expect(err).NotTo(HaveOccurred(), "error waiting for secret: %s, %v", component, err)
 
 	return
 }
@@ -316,11 +338,11 @@ var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func()
 	var basem string
 	k8sClient := k8sClientSet()
 	airflowClient := getOperatorClientset()
-	//deleteOptions := getDeleteOptions()
 
-	//BeforeEach(func() {})
-	//AfterEach(func() {})
+	BeforeEach(func() {})
+	AfterEach(func() {})
 
+	// --------------- Tests -------------------------
 	It("should create airflow-base using mysql and nfs components", func() { basem = testBaseComponentCreation(0, k8sClient, airflowClient) })
 
 	// airflowBase() needs to inject sqlproxy config
@@ -339,16 +361,10 @@ var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func()
 
 })
 
-// --------------- Tests -------------------------
-//
 
-// It(“should create airflow-base mysql and nfs components”)
-// Step 1: create AirflowBase object with storage and mysql enabled
-// Step 2: wait for mysql StatefulSet and nfs StatefulSet to become ready
-// all pods have to be available
-// Step 3: verify
-// for mysql, the root password secret should be created
-// Mysql and nfs stateful sets should have 1 pods each
+// Step 1: create AirflowBase object with storage and mysql/sqlproxy
+// Step 2: wait for mysql/sqlproxy StatefulSet and nfs StatefulSet to become ready all pods have to be available
+// Step 3: verify for mysql, the root password secret should be created, Mysql and nfs stateful sets should have 1 pods each
 func testBaseComponentCreation(databaseType int, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client) string {
 	testname := "base"
 	if databaseType == 0 {
@@ -367,19 +383,14 @@ func testBaseComponentCreation(databaseType int, k8sClient *kubernetes.Clientset
 	return testname
 }
 
-//It(“should create airflow-cluster components using mysql base and  celery executor”)
-//Step 1: create AirflowBase object with storage and mysql enabled
-//Step 2: wait for mysql StatefulSet and nfs StatefulSet to become ready
-//all pods have to be available
 //Step 3: create AirflowCluster object with redis, ui, scheduler and workers enabled and celery executor
-//Step 4: wait for redis, ui, scheduler and worker StatefulSets to become ready
-//all pods have to be available
+//Step 4: wait for redis, ui, scheduler and worker StatefulSets to become ready, all pods have to be available
 //Step 5: verify
-//All stateful sets have 1 pod each except workers which should have 2 pods
-//Scheduler is configured correctly to connect to mysql, and celery connection string points to redis instance
-//UI is configured correctly to connect to mysql
-//Workers celery config and mysql config is correct
-//Scheduler, ui and workers all synced the DAGs from git repo
+//     All stateful sets have 1 pod each
+//     Scheduler is configured correctly to connect to mysql, and celery connection string points to redis instance
+//     UI is configured correctly to connect to mysql
+//     Workers celery config and mysql config is correct
+//     Scheduler, ui and workers all synced the DAGs from git repo
 func testClusterComponentCreation(base, executor, database string, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client, dags *airflowv1alpha1.DagSpec) {
 	testname := "cluster-cmg"
 	_, err := airflowClient.AirflowClusters(namespace).Create(airflowCluster(testname, base, executor, database, dags))

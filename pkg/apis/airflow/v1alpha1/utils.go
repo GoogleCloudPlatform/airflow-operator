@@ -1343,6 +1343,7 @@ func (s *WorkerSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool 
 }
 
 // ------------------------------ Flower ---------------------------------------
+
 // ExpectedResources returns the list of resource/name for those resources created by
 func (s *FlowerSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
 	r := rsrc.(*AirflowCluster)

@@ -1,4 +1,4 @@
-// Copyright 2014 Google Inc. All Rights Reserved.
+// Copyright 2014 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
 package datastore
 
 import (
+	"context"
 	"errors"
 
-	"golang.org/x/net/context"
+	"cloud.google.com/go/internal/trace"
+	pb "google.golang.org/genproto/googleapis/datastore/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-
-	pb "google.golang.org/genproto/googleapis/datastore/v1"
 )
 
 // ErrConcurrentTransaction is returned when a transaction is rolled back due
@@ -95,7 +95,10 @@ type Transaction struct {
 }
 
 // NewTransaction starts a new transaction.
-func (c *Client) NewTransaction(ctx context.Context, opts ...TransactionOption) (*Transaction, error) {
+func (c *Client) NewTransaction(ctx context.Context, opts ...TransactionOption) (t *Transaction, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.NewTransaction")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	for _, o := range opts {
 		if _, ok := o.(maxAttempts); ok {
 			return nil, errors.New("datastore: NewTransaction does not accept MaxAttempts option")
@@ -152,7 +155,10 @@ func (c *Client) newTransaction(ctx context.Context, s *transactionSettings) (*T
 // is, it should have the same result when called multiple times. Note that
 // Transaction.Get will append when unmarshalling slice fields, so it is not
 // necessarily idempotent.
-func (c *Client) RunInTransaction(ctx context.Context, f func(tx *Transaction) error, opts ...TransactionOption) (*Commit, error) {
+func (c *Client) RunInTransaction(ctx context.Context, f func(tx *Transaction) error, opts ...TransactionOption) (cmt *Commit, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/datastore.RunInTransaction")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	settings := newTransactionSettings(opts)
 	for n := 0; n < settings.attempts; n++ {
 		tx, err := c.newTransaction(ctx, settings)
@@ -160,7 +166,7 @@ func (c *Client) RunInTransaction(ctx context.Context, f func(tx *Transaction) e
 			return nil, err
 		}
 		if err := f(tx); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return nil, err
 		}
 		if cmt, err := tx.Commit(); err != ErrConcurrentTransaction {
@@ -176,7 +182,10 @@ func (c *Client) RunInTransaction(ctx context.Context, f func(tx *Transaction) e
 }
 
 // Commit applies the enqueued operations atomically.
-func (t *Transaction) Commit() (*Commit, error) {
+func (t *Transaction) Commit() (c *Commit, err error) {
+	t.ctx = trace.StartSpan(t.ctx, "cloud.google.com/go/datastore.Transaction.Commit")
+	defer func() { trace.EndSpan(t.ctx, err) }()
+
 	if t.id == nil {
 		return nil, errExpiredTransaction
 	}
@@ -186,17 +195,16 @@ func (t *Transaction) Commit() (*Commit, error) {
 		Mutations:           t.mutations,
 		Mode:                pb.CommitRequest_TRANSACTIONAL,
 	}
-	t.id = nil
 	resp, err := t.client.client.Commit(t.ctx, req)
+	if grpc.Code(err) == codes.Aborted {
+		return nil, ErrConcurrentTransaction
+	}
+	t.id = nil // mark the transaction as expired
 	if err != nil {
-		if grpc.Code(err) == codes.Aborted {
-			return nil, ErrConcurrentTransaction
-		}
 		return nil, err
 	}
 
 	// Copy any newly minted keys into the returned keys.
-	commit := &Commit{}
 	for i, p := range t.pending {
 		if i >= len(resp.MutationResults) || resp.MutationResults[i].Key == nil {
 			return nil, errors.New("datastore: internal error: server returned the wrong mutation results")
@@ -206,20 +214,23 @@ func (t *Transaction) Commit() (*Commit, error) {
 			return nil, errors.New("datastore: internal error: server returned an invalid key")
 		}
 		p.key = key
-		p.commit = commit
+		p.commit = c
 	}
 
-	return commit, nil
+	return c, nil
 }
 
 // Rollback abandons a pending transaction.
-func (t *Transaction) Rollback() error {
+func (t *Transaction) Rollback() (err error) {
+	t.ctx = trace.StartSpan(t.ctx, "cloud.google.com/go/datastore.Transaction.Rollback")
+	defer func() { trace.EndSpan(t.ctx, err) }()
+
 	if t.id == nil {
 		return errExpiredTransaction
 	}
 	id := t.id
 	t.id = nil
-	_, err := t.client.client.Rollback(t.ctx, &pb.RollbackRequest{
+	_, err = t.client.client.Rollback(t.ctx, &pb.RollbackRequest{
 		ProjectId:   t.client.dataset,
 		Transaction: id,
 	})
@@ -231,11 +242,14 @@ func (t *Transaction) Rollback() error {
 // snapshot. Furthermore, if the transaction is set to a serializable isolation
 // level, another transaction cannot concurrently modify the data that is read
 // or modified by this transaction.
-func (t *Transaction) Get(key *Key, dst interface{}) error {
+func (t *Transaction) Get(key *Key, dst interface{}) (err error) {
+	t.ctx = trace.StartSpan(t.ctx, "cloud.google.com/go/datastore.Transaction.Get")
+	defer func() { trace.EndSpan(t.ctx, err) }()
+
 	opts := &pb.ReadOptions{
 		ConsistencyType: &pb.ReadOptions_Transaction{Transaction: t.id},
 	}
-	err := t.client.get(t.ctx, []*Key{key}, []interface{}{dst}, opts)
+	err = t.client.get(t.ctx, []*Key{key}, []interface{}{dst}, opts)
 	if me, ok := err.(MultiError); ok {
 		return me[0]
 	}
@@ -243,7 +257,10 @@ func (t *Transaction) Get(key *Key, dst interface{}) error {
 }
 
 // GetMulti is a batch version of Get.
-func (t *Transaction) GetMulti(keys []*Key, dst interface{}) error {
+func (t *Transaction) GetMulti(keys []*Key, dst interface{}) (err error) {
+	t.ctx = trace.StartSpan(t.ctx, "cloud.google.com/go/datastore.Transaction.GetMulti")
+	defer func() { trace.EndSpan(t.ctx, err) }()
+
 	if t.id == nil {
 		return errExpiredTransaction
 	}
@@ -272,8 +289,11 @@ func (t *Transaction) Put(key *Key, src interface{}) (*PendingKey, error) {
 
 // PutMulti is a batch version of Put. One PendingKey is returned for each
 // element of src in the same order.
-func (t *Transaction) PutMulti(keys []*Key, src interface{}) ([]*PendingKey, error) {
-	// TODO(jba): rewrite in terms of Mutate.
+// TODO(jba): rewrite in terms of Mutate.
+func (t *Transaction) PutMulti(keys []*Key, src interface{}) (ret []*PendingKey, err error) {
+	t.ctx = trace.StartSpan(t.ctx, "cloud.google.com/go/datastore.Transaction.PutMulti")
+	defer func() { trace.EndSpan(t.ctx, err) }()
+
 	if t.id == nil {
 		return nil, errExpiredTransaction
 	}
@@ -285,7 +305,7 @@ func (t *Transaction) PutMulti(keys []*Key, src interface{}) ([]*PendingKey, err
 	t.mutations = append(t.mutations, mutations...)
 
 	// Prepare the returned handles, pre-populating where possible.
-	ret := make([]*PendingKey, len(keys))
+	ret = make([]*PendingKey, len(keys))
 	for i, key := range keys {
 		p := &PendingKey{}
 		if key.Incomplete() {
@@ -312,8 +332,11 @@ func (t *Transaction) Delete(key *Key) error {
 }
 
 // DeleteMulti is a batch version of Delete.
-func (t *Transaction) DeleteMulti(keys []*Key) error {
-	// TODO(jba): rewrite in terms of Mutate.
+// TODO(jba): rewrite in terms of Mutate.
+func (t *Transaction) DeleteMulti(keys []*Key) (err error) {
+	t.ctx = trace.StartSpan(t.ctx, "cloud.google.com/go/datastore.Transaction.DeleteMulti")
+	defer func() { trace.EndSpan(t.ctx, err) }()
+
 	if t.id == nil {
 		return errExpiredTransaction
 	}

@@ -23,7 +23,11 @@ func (n Name) Title() string {
 
 // Underscore version of a name. ie. "FooBar" => "foo_bar"
 func (n Name) Underscore() string {
-	return Underscore(string(n))
+	w := string(n)
+	if strings.ToUpper(w) == w {
+		return strings.ToLower(w)
+	}
+	return Underscore(w)
 }
 
 // Plural version of a name
@@ -58,7 +62,7 @@ func (n Name) Model() string {
 
 // Resource version of a name
 func (n Name) Resource() string {
-	name := Underscore(string(n))
+	name := n.Underscore()
 	x := strings.FieldsFunc(name, func(r rune) bool {
 		return r == '_' || r == '/'
 	})
@@ -77,7 +81,7 @@ func (n Name) Resource() string {
 
 // ModelPlural version of a name. ie. "user" => "Users"
 func (n Name) ModelPlural() string {
-	return Pluralize(n.Model())
+	return Camelize(Pluralize(n.Model()))
 }
 
 // File version of a name
@@ -135,6 +139,7 @@ func (n Name) ParamID() string {
 	return fmt.Sprintf("%s_id", strings.Replace(n.UnderSingular(), "/", "_", -1))
 }
 
+// Package returns go package
 func (n Name) Package() string {
 	key := string(n)
 
@@ -148,6 +153,11 @@ func (n Name) Package() string {
 	return key
 }
 
+// Char returns first character in lower case, this is useful for methods inside a struct.
 func (n Name) Char() string {
 	return strings.ToLower(string(n[0]))
+}
+
+func (n Name) String() string {
+	return string(n)
 }

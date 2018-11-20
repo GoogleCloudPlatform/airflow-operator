@@ -1,4 +1,4 @@
-// Copyright 2017 Google Inc. All Rights Reserved.
+// Copyright 2017 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,14 +15,14 @@
 package firestore
 
 import (
+	"context"
 	"errors"
 
-	pb "google.golang.org/genproto/googleapis/firestore/v1beta1"
-
 	gax "github.com/googleapis/gax-go"
-	"golang.org/x/net/context"
+	pb "google.golang.org/genproto/googleapis/firestore/v1beta1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Transaction represents a Firestore transaction.
@@ -61,10 +61,6 @@ type ro struct{}
 func (ro) config(t *Transaction) { t.readOnly = true }
 
 var (
-	// ErrConcurrentTransaction is returned when a transaction is rolled back due
-	// to a conflict with a concurrent transaction.
-	ErrConcurrentTransaction = errors.New("firestore: concurrent transaction")
-
 	// Defined here for testing.
 	errReadAfterWrite     = errors.New("firestore: read after write in transaction")
 	errWriteReadOnly      = errors.New("firestore: write in read-only transaction")
@@ -88,9 +84,9 @@ func checkTransaction(ctx context.Context) error {
 // f must not call Commit or Rollback on the provided Transaction.
 //
 // If f returns nil, RunTransaction commits the transaction. If the commit fails due
-// to a conflicting transaction, RunTransaction retries f. It gives up and returns
-// ErrConcurrentTransaction after a number of attempts that can be configured with
-// the MaxAttempts option. If the commit succeeds, RunTransaction returns a nil error.
+// to a conflicting transaction, RunTransaction retries f. It gives up and returns an
+// error after a number of attempts that can be configured with the MaxAttempts
+// option. If the commit succeeds, RunTransaction returns a nil error.
 //
 // If f returns non-nil, then the transaction will be rolled back and
 // this method will return the same error. The function f is not retried.
@@ -172,7 +168,7 @@ func (c *Client) RunTransaction(ctx context.Context, f func(context.Context, *Tr
 		}
 		// Use exponential backoff to avoid contention with other running
 		// transactions.
-		if cerr := gax.Sleep(ctx, backoff.Pause()); cerr != nil {
+		if cerr := sleep(ctx, backoff.Pause()); cerr != nil {
 			err = cerr
 			break
 		}
@@ -198,24 +194,21 @@ func (t *Transaction) rollback() {
 // Get gets the document in the context of the transaction. The transaction holds a
 // pessimistic lock on the returned document.
 func (t *Transaction) Get(dr *DocumentRef) (*DocumentSnapshot, error) {
-	if len(t.writes) > 0 {
-		t.readAfterWrite = true
-		return nil, errReadAfterWrite
-	}
-	docProto, err := t.c.c.GetDocument(t.ctx, &pb.GetDocumentRequest{
-		Name:                dr.Path,
-		ConsistencySelector: &pb.GetDocumentRequest_Transaction{t.id},
-	})
+	docsnaps, err := t.GetAll([]*DocumentRef{dr})
 	if err != nil {
 		return nil, err
 	}
-	return newDocumentSnapshot(dr, docProto, t.c)
+	ds := docsnaps[0]
+	if !ds.Exists() {
+		return ds, status.Errorf(codes.NotFound, "%q not found", dr.Path)
+	}
+	return ds, nil
 }
 
 // GetAll retrieves multiple documents with a single call. The DocumentSnapshots are
 // returned in the order of the given DocumentRefs. If a document is not present, the
-// corresponding DocumentSnapshot will be nil. The transaction holds a pessimistic
-// lock on all of the returned documents.
+// corresponding DocumentSnapshot's Exists method will return false. The transaction
+// holds a pessimistic lock on all of the returned documents.
 func (t *Transaction) GetAll(drs []*DocumentRef) ([]*DocumentSnapshot, error) {
 	if len(t.writes) > 0 {
 		t.readAfterWrite = true
@@ -238,10 +231,19 @@ func (t *Transaction) Documents(q Queryer) *DocumentIterator {
 		return &DocumentIterator{err: errReadAfterWrite}
 	}
 	return &DocumentIterator{
-		ctx: t.ctx,
-		q:   q.query(),
-		tid: t.id,
+		iter: newQueryDocumentIterator(t.ctx, q.query(), t.id),
 	}
+}
+
+// DocumentRefs returns references to all the documents in the collection, including
+// missing documents. A missing document is a document that does not exist but has
+// sub-documents.
+func (t *Transaction) DocumentRefs(cr *CollectionRef) *DocumentRefIterator {
+	if len(t.writes) > 0 {
+		t.readAfterWrite = true
+		return &DocumentRefIterator{err: errReadAfterWrite}
+	}
+	return newDocumentRefIterator(t.ctx, cr, t.id)
 }
 
 // Create adds a Create operation to the Transaction.

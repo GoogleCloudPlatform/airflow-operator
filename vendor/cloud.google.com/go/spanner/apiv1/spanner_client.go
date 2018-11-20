@@ -17,12 +17,12 @@
 package spanner
 
 import (
+	"context"
 	"math"
 	"time"
 
-	"cloud.google.com/go/internal/version"
+	"github.com/golang/protobuf/proto"
 	gax "github.com/googleapis/gax-go"
-	"golang.org/x/net/context"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/transport"
@@ -45,6 +45,8 @@ type CallOptions struct {
 	BeginTransaction    []gax.CallOption
 	Commit              []gax.CallOption
 	Rollback            []gax.CallOption
+	PartitionQuery      []gax.CallOption
+	PartitionRead       []gax.CallOption
 }
 
 func defaultClientOptions() []option.ClientOption {
@@ -92,10 +94,14 @@ func defaultCallOptions() *CallOptions {
 		BeginTransaction:    retry[[2]string{"default", "idempotent"}],
 		Commit:              retry[[2]string{"long_running", "long_running"}],
 		Rollback:            retry[[2]string{"default", "idempotent"}],
+		PartitionQuery:      retry[[2]string{"default", "idempotent"}],
+		PartitionRead:       retry[[2]string{"default", "idempotent"}],
 	}
 }
 
 // Client is a client for interacting with Cloud Spanner API.
+//
+// Methods, except Close, may be called concurrently. However, fields must not be modified concurrently with method calls.
 type Client struct {
 	// The connection to the service.
 	conn *grpc.ClientConn
@@ -146,8 +152,8 @@ func (c *Client) Close() error {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *Client) SetGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", version.Go()}, keyval...)
-	kv = append(kv, "gapic", version.Repo, "gax", gax.Version, "grpc", grpc.Version)
+	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv = append(kv, "gapic", versionClient, "gax", gax.Version, "grpc", grpc.Version)
 	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
 }
 
@@ -208,6 +214,7 @@ func (c *Client) ListSessions(ctx context.Context, req *spannerpb.ListSessionsRe
 	ctx = insertMetadata(ctx, c.xGoogMetadata)
 	opts = append(c.CallOptions.ListSessions[0:len(c.CallOptions.ListSessions):len(c.CallOptions.ListSessions)], opts...)
 	it := &SessionIterator{}
+	req = proto.Clone(req).(*spannerpb.ListSessionsRequest)
 	it.InternalFetch = func(pageSize int, pageToken string) ([]*spannerpb.Session, string, error) {
 		var resp *spannerpb.ListSessionsResponse
 		req.PageToken = pageToken
@@ -235,6 +242,7 @@ func (c *Client) ListSessions(ctx context.Context, req *spannerpb.ListSessionsRe
 		return nextPageToken, nil
 	}
 	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.PageSize)
 	return it
 }
 
@@ -250,12 +258,12 @@ func (c *Client) DeleteSession(ctx context.Context, req *spannerpb.DeleteSession
 	return err
 }
 
-// ExecuteSql executes an SQL query, returning all rows in a single reply. This
+// ExecuteSql executes an SQL statement, returning all results in a single reply. This
 // method cannot be used to return a result set larger than 10 MiB;
 // if the query yields more data than that, the query fails with
 // a FAILED_PRECONDITION error.
 //
-// Queries inside read-write transactions might return ABORTED. If
+// Operations inside read-write transactions might return ABORTED. If
 // this occurs, the application should restart the transaction from
 // the beginning. See [Transaction][google.spanner.v1.Transaction] for more details.
 //
@@ -403,6 +411,60 @@ func (c *Client) Rollback(ctx context.Context, req *spannerpb.RollbackRequest, o
 		return err
 	}, opts...)
 	return err
+}
+
+// PartitionQuery creates a set of partition tokens that can be used to execute a query
+// operation in parallel.  Each of the returned partition tokens can be used
+// by [ExecuteStreamingSql][google.spanner.v1.Spanner.ExecuteStreamingSql] to specify a subset
+// of the query result to read.  The same session and read-only transaction
+// must be used by the PartitionQueryRequest used to create the
+// partition tokens and the ExecuteSqlRequests that use the partition tokens.
+//
+// Partition tokens become invalid when the session used to create them
+// is deleted, is idle for too long, begins a new transaction, or becomes too
+// old.  When any of these happen, it is not possible to resume the query, and
+// the whole operation must be restarted from the beginning.
+func (c *Client) PartitionQuery(ctx context.Context, req *spannerpb.PartitionQueryRequest, opts ...gax.CallOption) (*spannerpb.PartitionResponse, error) {
+	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	opts = append(c.CallOptions.PartitionQuery[0:len(c.CallOptions.PartitionQuery):len(c.CallOptions.PartitionQuery)], opts...)
+	var resp *spannerpb.PartitionResponse
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = c.client.PartitionQuery(ctx, req, settings.GRPC...)
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// PartitionRead creates a set of partition tokens that can be used to execute a read
+// operation in parallel.  Each of the returned partition tokens can be used
+// by [StreamingRead][google.spanner.v1.Spanner.StreamingRead] to specify a subset of the read
+// result to read.  The same session and read-only transaction must be used by
+// the PartitionReadRequest used to create the partition tokens and the
+// ReadRequests that use the partition tokens.  There are no ordering
+// guarantees on rows returned among the returned partition tokens, or even
+// within each individual StreamingRead call issued with a partition_token.
+//
+// Partition tokens become invalid when the session used to create them
+// is deleted, is idle for too long, begins a new transaction, or becomes too
+// old.  When any of these happen, it is not possible to resume the read, and
+// the whole operation must be restarted from the beginning.
+func (c *Client) PartitionRead(ctx context.Context, req *spannerpb.PartitionReadRequest, opts ...gax.CallOption) (*spannerpb.PartitionResponse, error) {
+	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	opts = append(c.CallOptions.PartitionRead[0:len(c.CallOptions.PartitionRead):len(c.CallOptions.PartitionRead)], opts...)
+	var resp *spannerpb.PartitionResponse
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = c.client.PartitionRead(ctx, req, settings.GRPC...)
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // SessionIterator manages a stream of *spannerpb.Session.

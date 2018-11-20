@@ -1,4 +1,4 @@
-// Copyright 2017 Google Inc. All Rights Reserved.
+// Copyright 2017 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,9 +20,8 @@ import (
 	"reflect"
 	"strings"
 
-	pb "google.golang.org/genproto/googleapis/firestore/v1beta1"
-
 	"github.com/golang/protobuf/ptypes"
+	pb "google.golang.org/genproto/googleapis/firestore/v1beta1"
 )
 
 func setFromProtoValue(x interface{}, vproto *pb.Value, c *Client) error {
@@ -71,6 +70,14 @@ func setReflectFromProtoValue(v reflect.Value, vproto *pb.Value, c *Client) erro
 			return err
 		}
 		v.Set(reflect.ValueOf(t))
+		return nil
+
+	case typeOfProtoTimestamp:
+		x, ok := val.(*pb.Value_TimestampValue)
+		if !ok {
+			return typeErr()
+		}
+		v.Set(reflect.ValueOf(x.TimestampValue))
 		return nil
 
 	case typeOfLatLng:

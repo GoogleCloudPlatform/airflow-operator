@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Google Inc. All Rights Reserved.
+Copyright 2017 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,22 +21,19 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"cloud.google.com/go/civil"
 	proto3 "github.com/golang/protobuf/ptypes/struct"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
+	"google.golang.org/grpc/codes"
 )
 
 // A Key can be either a Cloud Spanner row's primary key or a secondary index key.
 // It is essentially an interface{} array, which represents a set of Cloud Spanner
-// columns. A Key type has the following usages:
+// columns. A Key can be used as:
 //
-//     - Used as primary key which uniquely identifies a Cloud Spanner row.
-//     - Used as secondary index key which maps to a set of Cloud Spanner rows
-//       indexed under it.
-//     - Used as endpoints of primary key/secondary index ranges,
-//       see also the KeyRange type.
+//   - A primary key which uniquely identifies a Cloud Spanner row.
+//   - A secondary index key which maps to a set of Cloud Spanner rows indexed under it.
+//   - An endpoint of primary key/secondary index ranges; see the KeyRange type.
 //
 // Rows that are identified by the Key type are outputs of read operation or targets of
 // delete operation in a mutation. Note that for Insert/Update/InsertOrUpdate/Update

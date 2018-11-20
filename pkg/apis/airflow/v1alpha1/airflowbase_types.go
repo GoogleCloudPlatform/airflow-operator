@@ -26,8 +26,9 @@ const (
 	defaultMySQLVersion     = "5.7"
 	defaultPostgresImage    = "postgres"
 	defaultPostgresVersion  = "9.5"
-	defaultUIImage          = "gcr.io/airflow-operator/airflow"
+  defaultUIImage          = "gcr.io/airflow-operator/airflow"
 	defaultUIVersion        = "1.10.0rc2"
+	defaultFlowerVersion    = "1.10.0rc2"
 	defaultNFSVersion       = "0.8"
 	defaultNFSImage         = "k8s.gcr.io/volume-nfs"
 	defaultSQLProxyImage    = "gcr.io/cloud-airflow-public/airflow-sqlproxy"
@@ -35,7 +36,7 @@ const (
 	defaultSchedule         = "0 0 0 ? * * *`" // daily@midnight
 	defaultMySQLReplicas    = 1
 	defaultPostgresReplicas = 1
-	defaultOperator         = false
+  defaultOperator         = false
 	defaultStorageProvider  = "s3"
 	providerS3              = "s3"
 	StatusReady             = "Ready"

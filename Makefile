@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-image = gcr.io/airflow-operator/airflow-operator:v1alpha1
+image = $(CONTROLLER_IMAGE)
 curdir = $(shell pwd)
 
 all:

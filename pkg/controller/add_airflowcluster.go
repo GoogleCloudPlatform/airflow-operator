@@ -14,10 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains API Schema definitions for the airflow v1alpha1 API group
-// +k8s:openapi-gen=true
-// +k8s:deepcopy-gen=package,register
-// +k8s:conversion-gen=k8s.io/airflow-operator/pkg/apis/airflow
-// +k8s:defaulter-gen=TypeMeta
-// +groupName=airflow.airflow.k8s.io
-package v1alpha1
+package controller
+
+import (
+	"k8s.io/airflow-operator/pkg/controller/airflowcluster"
+)
+
+func init() {
+	// AddToManagerFuncs is a list of functions to create controllers and add them to a manager.
+	AddToManagerFuncs = append(AddToManagerFuncs, airflowcluster.Add)
+}

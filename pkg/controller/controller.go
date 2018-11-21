@@ -14,10 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains API Schema definitions for the airflow v1alpha1 API group
-// +k8s:openapi-gen=true
-// +k8s:deepcopy-gen=package,register
-// +k8s:conversion-gen=k8s.io/airflow-operator/pkg/apis/airflow
-// +k8s:defaulter-gen=TypeMeta
-// +groupName=airflow.airflow.k8s.io
-package v1alpha1
+package controller
+
+import (
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+)
+
+// AddToManagerFuncs is a list of functions to add all Controllers to the Manager
+var AddToManagerFuncs []func(manager.Manager) error
+
+// AddToManager adds all Controllers to the Manager
+func AddToManager(m manager.Manager) error {
+	for _, f := range AddToManagerFuncs {
+		if err := f(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}

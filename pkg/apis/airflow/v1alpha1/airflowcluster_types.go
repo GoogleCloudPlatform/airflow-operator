@@ -19,7 +19,11 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/kubesdk/pkg/component"
+	cr "sigs.k8s.io/kubesdk/pkg/customresource"
+	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
 // defaults and constant strings
@@ -260,8 +264,6 @@ type AirflowClusterSpec struct {
 
 // SchedulerStatus defines the observed state of Airflow Scheduler
 type SchedulerStatus struct {
-	// Status is a string describing Scheduler status
-	Resources ComponentStatus `json:"resources,omitempty"`
 	// DagCount is a count of number of Dags observed
 	DagCount int32 `json:"dagcount,omitempty"`
 	// RunCount is a count of number of Dag Runs observed
@@ -270,28 +272,7 @@ type SchedulerStatus struct {
 
 // AirflowClusterStatus defines the observed state of AirflowCluster
 type AirflowClusterStatus struct {
-	// ObservedGeneration is the last generation of the AirflowCluster as
-	// observed by the controller.
-	ObservedGeneration int64 `json:"observedGeneration"`
-	// Redis is the status of the Redis component
-	// +optional
-	Redis ComponentStatus `json:"redis,omitempty"`
-	// Scheduler is the status of the Airflow Scheduler component
-	// +optional
-	Scheduler SchedulerStatus `json:"scheduler,omitempty"`
-	// Worker is the status of the Workers
-	// +optional
-	Worker ComponentStatus `json:"worker,omitempty"`
-	// UI is the status of the Airflow UI component
-	// +optional
-	UI ComponentStatus `json:"ui,omitempty"`
-	// Flower is the status of the Airflow UI component
-	// +optional
-	Flower ComponentStatus `json:"flower,omitempty"`
-	// LastError
-	LastError string `json:"lasterror,omitempty"`
-	// Status
-	Status string `json:"status,omitempty"`
+	status.Meta `json:",inline"`
 }
 
 // +genclient
@@ -382,6 +363,17 @@ func (b *AirflowCluster) ApplyDefaults() {
 	}
 }
 
+// UpdateRsrcStatus records status or error in status
+func (b *AirflowCluster) UpdateRsrcStatus(status interface{}, err error) bool {
+	esstatus := status.(*AirflowClusterStatus)
+	if status != nil {
+		b.Status = *esstatus
+	}
+
+	// TODO use err
+	return true
+}
+
 // Validate the AirflowCluster
 func (b *AirflowCluster) Validate() error {
 	errs := field.ErrorList{}
@@ -432,26 +424,72 @@ func (b *AirflowCluster) Validate() error {
 	return errs.ToAggregate()
 }
 
-// Components get the enabled component interface for the AirflowBase
-func (b *AirflowCluster) Components() map[string]ComponentHandle {
-	var c = map[string]ComponentHandle{}
-
+// Components returns components for this resource
+func (b *AirflowCluster) Components() []component.Component {
+	c := []component.Component{}
 	if b.Spec.Redis != nil {
-		c["Redis"] = b.Spec.Redis
+		c = append(c, component.Component{
+			Handle:   b.Spec.Redis,
+			Name:     "Redis",
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.Flower != nil {
-		c["Flower"] = b.Spec.Flower
+		c = append(c, component.Component{
+			Handle:   b.Spec.Flower,
+			Name:     "Flower",
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.Scheduler != nil {
-		c["Scheduler"] = b.Spec.Scheduler
+		c = append(c, component.Component{
+			Handle:   b.Spec.Scheduler,
+			Name:     "Scheduler",
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.UI != nil {
-		c["UI"] = b.Spec.UI
+		c = append(c, component.Component{
+			Handle:   b.Spec.UI,
+			Name:     "UI",
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
-	if b.Spec.Worker != nil && b.Spec.Executor == ExecutorCelery {
-		c["Worker"] = b.Spec.Worker
+	if b.Spec.Worker != nil {
+		c = append(c, component.Component{
+			Handle:   b.Spec.Worker,
+			Name:     "Worker",
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	return c
+}
+
+// OwnerRef returns owner ref object with the component's resource as owner
+func (b *AirflowCluster) OwnerRef() []metav1.OwnerReference {
+	return []metav1.OwnerReference{
+		*metav1.NewControllerRef(b, schema.GroupVersionKind{
+			Group:   SchemeGroupVersion.Group,
+			Version: SchemeGroupVersion.Version,
+			Kind:    "AirflowCluster",
+		}),
+	}
+}
+
+// NewRsrc - return a new resource object
+func (b *AirflowCluster) NewRsrc() cr.Handle {
+	return &AirflowCluster{}
+}
+
+// NewStatus - return a  resource status object
+func (b *AirflowCluster) NewStatus() interface{} {
+	s := b.Status.DeepCopy()
+	return s
 }
 
 // StatusDiffers returns True if there is a change in status

@@ -21,8 +21,217 @@ spec:
         metadata:
           type: object
         spec:
+          properties:
+            affinity:
+              type: object
+            airflowbase:
+              type: object
+            annotations:
+              type: object
+            dags:
+              properties:
+                gcs:
+                  properties:
+                    bucket:
+                      type: string
+                    once:
+                      type: boolean
+                  type: object
+                git:
+                  properties:
+                    branch:
+                      type: string
+                    cred:
+                      type: object
+                    once:
+                      type: boolean
+                    repo:
+                      type: string
+                    rev:
+                      type: string
+                    user:
+                      type: string
+                  required:
+                  - repo
+                  type: object
+                nfspv:
+                  type: object
+                storage:
+                  properties:
+                    config:
+                      type: object
+                    secretRef:
+                      type: object
+                    storageprovider:
+                      type: string
+                  required:
+                  - storageprovider
+                  type: object
+                subdir:
+                  type: string
+              type: object
+            executor:
+              type: string
+            flower:
+              properties:
+                image:
+                  type: string
+                replicas:
+                  format: int32
+                  type: integer
+                resources:
+                  type: object
+                version:
+                  type: string
+              required:
+              - image
+              - version
+              type: object
+            labels:
+              type: object
+            nodeSelector:
+              type: object
+            redis:
+              properties:
+                additionalargs:
+                  type: string
+                image:
+                  type: string
+                operator:
+                  type: boolean
+                resources:
+                  type: object
+                version:
+                  type: string
+                volumeClaimTemplate:
+                  type: object
+              required:
+              - image
+              - version
+              type: object
+            scheduler:
+              properties:
+                database:
+                  type: string
+                dbuser:
+                  type: string
+                image:
+                  type: string
+                resources:
+                  type: object
+                version:
+                  type: string
+              required:
+              - image
+              - version
+              - database
+              - dbuser
+              type: object
+            ui:
+              properties:
+                image:
+                  type: string
+                replicas:
+                  format: int32
+                  type: integer
+                resources:
+                  type: object
+                version:
+                  type: string
+              required:
+              - image
+              - version
+              type: object
+            worker:
+              properties:
+                image:
+                  type: string
+                replicas:
+                  format: int32
+                  type: integer
+                resources:
+                  type: object
+                version:
+                  type: string
+              required:
+              - image
+              - version
+              type: object
           type: object
         status:
+          properties:
+            components:
+              items:
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  link:
+                    type: string
+                  name:
+                    type: string
+                  pdb:
+                    properties:
+                      currenthealthy:
+                        format: int32
+                        type: integer
+                      desiredhealthy:
+                        format: int32
+                        type: integer
+                    required:
+                    - currenthealthy
+                    - desiredhealthy
+                    type: object
+                  status:
+                    type: string
+                  sts:
+                    properties:
+                      currentcount:
+                        format: int32
+                        type: integer
+                      progress:
+                        format: int32
+                        type: integer
+                      readycount:
+                        format: int32
+                        type: integer
+                      replicas:
+                        format: int32
+                        type: integer
+                    required:
+                    - replicas
+                    - readycount
+                    - currentcount
+                    - progress
+                    type: object
+                type: object
+              type: array
+            conditions:
+              items:
+                properties:
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  lastUpdateTime:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  reason:
+                    type: string
+                  status:
+                    type: string
+                  type:
+                    type: string
+                required:
+                - type
+                - status
+                type: object
+              type: array
+            observedGeneration:
+              format: int64
+              type: integer
           type: object
   version: v1alpha1
 status:

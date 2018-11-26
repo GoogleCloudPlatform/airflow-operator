@@ -19,6 +19,9 @@ required = [
 [prune]
   go-tests = true
 
+[[constraint]]
+branch = "master"
+name = "github.com/kubernetes-sigs/application"
 
 # STANZAS BELOW ARE GENERATED AND MAY BE WRITTEN - DO NOT MODIFY BELOW THIS LINE.
 

@@ -17,17 +17,13 @@ limitations under the License.
 package airflowbase
 
 // Major:
-// TODO e2e tests
-// TODO status summarize
 // TODO move validation to another struct ?
-// TODO try interface based CRUD for objects
 // TODO retry.Retry
 //
 // Minor:
 // TODO review logic stsToAirflowBase
 // TODO cr.spec.generation is not incrementing - bug in api ?
 // TODO reconcile based on hash(spec)
-// TODO celery/flower
 // TODO validation: assume resources and volume claims are validated by api server ?
 // TODO parameterize controller using config maps for default images, versions, resources etc
 // TODO documentation for CRD spec
@@ -37,12 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	reconciler "sigs.k8s.io/kubesdk/pkg/genericreconciler"
+	kbc "sigs.k8s.io/kubesdk/pkg/kbcontroller"
 )
 
 // Add creates a new AirflowBase Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
+	return kbc.CreateController("airflowbase", mgr, &airflowv1alpha1.AirflowBase{}, newReconciler(mgr))
 }
 
 // newReconciler returns a new reconcile.Reconciler

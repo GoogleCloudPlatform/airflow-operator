@@ -72,6 +72,14 @@ type ExtendedStatus struct {
 	PDB *Pdb `json:"pdb,omitempty"`
 }
 
+// ComponentMeta is a generic set of fields for component status objects
+// +k8s:deepcopy-gen=true
+type ComponentMeta struct {
+	// Resources embeds a list of object statuses
+	// +optional
+	ComponentList `json:",inline,omitempty"`
+}
+
 // Meta is a generic set of fields for status objects
 // +k8s:deepcopy-gen=true
 type Meta struct {

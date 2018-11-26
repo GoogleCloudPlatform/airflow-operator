@@ -21,12 +21,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	reconciler "sigs.k8s.io/kubesdk/pkg/genericreconciler"
+	kbc "sigs.k8s.io/kubesdk/pkg/kbcontroller"
 )
 
 // Add creates a new AirflowCluster Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
+	return kbc.CreateController("airflowcluster", mgr, &airflowv1alpha1.AirflowCluster{}, newReconciler(mgr))
 }
 
 // newReconciler returns a new reconcile.Reconciler

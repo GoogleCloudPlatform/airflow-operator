@@ -59,10 +59,14 @@ func (s *Pdb) update(rsrc *policyv1.PodDisruptionBudget) string {
 	return StatusInProgress
 }
 
+// ResetComponentList - reset component list objects
+func (m *Meta) ResetComponentList() {
+	m.ComponentList.Objects = []ObjectStatus{}
+}
+
 // UpdateStatus the component status
 func (m *Meta) UpdateStatus(rsrcs []metav1.Object, err error) {
 	var ready = true
-	m.ComponentList.Objects = []ObjectStatus{}
 	for _, r := range rsrcs {
 		os := ObjectStatus{}
 		os.update(r)
@@ -74,11 +78,12 @@ func (m *Meta) UpdateStatus(rsrcs []metav1.Object, err error) {
 			os.ExtendedStatus.PDB = &Pdb{}
 			os.Status = os.ExtendedStatus.PDB.update(r.(*policyv1.PodDisruptionBudget))
 		}
+		m.ComponentList.Objects = append(m.ComponentList.Objects, os)
+	}
+	for _, os := range m.ComponentList.Objects {
 		if os.Status != StatusReady {
 			ready = false
-
 		}
-		m.ComponentList.Objects = append(m.ComponentList.Objects, os)
 	}
 
 	if ready {

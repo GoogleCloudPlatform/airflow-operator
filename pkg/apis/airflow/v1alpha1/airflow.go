@@ -16,7 +16,7 @@ package v1alpha1
 import (
 	"bytes"
 	"fmt"
-	resources "k8s.io/airflow-operator/pkg/controller/resources"
+	application "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1beta1"
@@ -26,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"math/rand"
+	"sigs.k8s.io/kubesdk/pkg/finalizer"
+	"sigs.k8s.io/kubesdk/pkg/resource"
 	"strconv"
 	"time"
 )
@@ -36,8 +38,6 @@ const (
 
 	PasswordCharNumSpace = "abcdefghijklmnopqrstuvwxyz0123456789"
 	PasswordCharSpace    = "abcdefghijklmnopqrstuvwxyz"
-	LifecycleManaged     = "managed"
-	LifecycleReferred    = "referred"
 
 	ActionCheck  = "check"
 	ActionCreate = "create"
@@ -77,33 +77,6 @@ const (
 var (
 	random = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
-
-// ResourceInfo is a container to capture the k8s resource info to be used by controller
-type ResourceInfo struct {
-	// Lifecycle can be: managed, reference
-	Lifecycle string
-	// Obj refers to the resource object  can be: sts, service, secret, pvc, ..
-	Obj resources.ResourceHandle
-	//Obj metav1.Object
-	// Action - hint on action to be taken as part of Reconcile
-	Action string
-}
-
-// ResourceSelector captures the k8s resource info and selector to fetch child resources
-type ResourceSelector struct {
-	// Obj refers to the resource object  can be: sts, service, secret, pvc, ..
-	Obj resources.ResourceHandle
-	// Selector - selector to pass to list
-	Selectors labels.Selector
-}
-
-// ComponentHandle is an interface for operating on Resource
-type ComponentHandle interface {
-	ExpectedResources(rsrc interface{}) []ResourceInfo
-	ObserveSelectors(rsrc interface{}) []ResourceSelector
-	Differs(expected ResourceInfo, observed ResourceInfo) bool
-	UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error)
-}
 
 // AirflowResource an interface for operating on AirflowResource
 type AirflowResource interface {
@@ -247,6 +220,10 @@ func (r *AirflowCluster) getMeta(name string, labels map[string]string) metav1.O
 			}),
 		},
 	}
+}
+
+func getApplicationFakeRemove() *application.Application {
+	return &application.Application{}
 }
 
 func (r *AirflowCluster) getAirflowPrometheusEnv() []corev1.EnvVar {
@@ -436,28 +413,30 @@ func sts(r AirflowResource, component string, suffix string, svc bool) *appsv1.S
 	}
 }
 
-func service(r AirflowResource, component string, name string, ports []corev1.ServicePort) *resources.Service {
+func service(r AirflowResource, component string, name string, ports []corev1.ServicePort) *resource.Object {
 	sname, labels, matchlabels := nameAndLabels(r, component, "", true)
 	if name == "" {
 		name = sname
 	}
-	return &resources.Service{
-		Service: &corev1.Service{
+	return &resource.Object{
+		Obj: &corev1.Service{
 			ObjectMeta: r.getMeta(name, labels),
 			Spec: corev1.ServiceSpec{
 				Ports:    ports,
 				Selector: matchlabels,
 			},
 		},
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &corev1.ServiceList{},
 	}
 }
 
-func podDisruption(r AirflowResource, component string, suffix string, minavail string) *resources.PodDisruptionBudget {
+func podDisruption(r AirflowResource, component string, suffix string, minavail string) *resource.Object {
 	name, label, selectors := nameAndLabels(r, component, suffix, true)
 	minAvailable := intstr.Parse(minavail)
 
-	return &resources.PodDisruptionBudget{
-		PodDisruptionBudget: &policyv1.PodDisruptionBudget{
+	return &resource.Object{
+		Obj: &policyv1.PodDisruptionBudget{
 			ObjectMeta: r.getMeta(name, label),
 			Spec: policyv1.PodDisruptionBudgetSpec{
 				MinAvailable: &minAvailable,
@@ -466,35 +445,39 @@ func podDisruption(r AirflowResource, component string, suffix string, minavail 
 				},
 			},
 		},
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &policyv1.PodDisruptionBudgetList{},
 	}
 }
 
 // ------------------------------ MYSQL  ---------------------------------------
 
-func (s *MySQLSpec) service(r *AirflowBase) *resources.Service {
+func (s *MySQLSpec) service(r *AirflowBase) *resource.Object {
 	return service(r, ValueAirflowComponentMySQL,
 		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
 		[]corev1.ServicePort{{Name: "mysql", Port: 3306}})
 }
 
-func (s *MySQLSpec) podDisruption(r *AirflowBase) *resources.PodDisruptionBudget {
+func (s *MySQLSpec) podDisruption(r *AirflowBase) *resource.Object {
 	return podDisruption(r, ValueAirflowComponentMySQL, "", "100%")
 }
 
-func (s *MySQLSpec) secret(r *AirflowBase) *resources.Secret {
+func (s *MySQLSpec) secret(r *AirflowBase) *resource.Object {
 	name, labels, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", true)
-	return &resources.Secret{
-		Secret: &corev1.Secret{
+	return &resource.Object{
+		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
 			Data: map[string][]byte{
 				"password":     RandomAlphanumericString(16),
 				"rootpassword": RandomAlphanumericString(16),
 			},
 		},
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &corev1.SecretList{},
 	}
 }
 
-func (s *MySQLSpec) sts(r *AirflowBase) *resources.StatefulSet {
+func (s *MySQLSpec) sts(r *AirflowBase) *resource.Object {
 	sqlSecret, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
 	ss := sts(r, ValueAirflowComponentMySQL, "", true)
 	ss.Spec.Replicas = &s.Replicas
@@ -554,93 +537,97 @@ func (s *MySQLSpec) sts(r *AirflowBase) *resources.StatefulSet {
 			},
 		},
 	}
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
+}
+
+// Mutate - mutate expected
+func (s *MySQLSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *MySQLSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *MySQLSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	if s.Operator {
-		return nil
-	}
-	rsrcInfos := []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.secret(r), ""},
-		ResourceInfo{LifecycleManaged, s.service(r), ""},
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-		ResourceInfo{LifecycleManaged, s.podDisruption(r), ""},
+	if !s.Operator {
+		resources.Add(
+			*s.secret(r),
+			*s.service(r),
+			*s.sts(r),
+			*s.podDisruption(r),
+		)
 	}
 	//if s.VolumeClaimTemplate != nil {
 	//	rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
 	//}
-	return rsrcInfos
+	return resources, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for those resources created by
-// the operator for this spec and those resources referenced by this operator.
-func (s *MySQLSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowBase)
-	if s.Operator {
-		return nil
-	}
-	selector := selectorLabels(r, ValueAirflowComponentMySQL)
-	secretSelector := selectorLabels(r, ValueAirflowComponentSQL)
-	rsrcSelectos := []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Service{}, selector},
-		{&resources.Secret{}, secretSelector},
-		{&resources.PodDisruptionBudget{}, selector},
-	}
-	//if s.VolumeClaimTemplate != nil {
-	//	rsrcSelectos = append(rsrcSelectos, ResourceSelector{s.VolumeClaimTemplate, nil})
-	//}
-	return rsrcSelectos
+// Observables - return selectors
+func (s *MySQLSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
-// Differs returns true if the resource needs to be updated
-func (s *MySQLSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	switch expected.Obj.(type) {
-	case *resources.Secret:
+// differs returns true if the resource needs to be updated
+func differs(expected metav1.Object, observed metav1.Object) bool {
+	switch expected.(type) {
+	case *corev1.ServiceAccount:
+		// Dont update a SA
+		return false
+	case *corev1.Secret:
 		// Dont update a secret
 		return false
-	case *resources.Service:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-		expected.Obj.(*resources.Service).Spec.ClusterIP = observed.Obj.(*resources.Service).Spec.ClusterIP
-	case *resources.PodDisruptionBudget:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
+	case *corev1.Service:
+		expected.SetResourceVersion(observed.GetResourceVersion())
+		expected.(*corev1.Service).Spec.ClusterIP = observed.(*corev1.Service).Spec.ClusterIP
+	case *policyv1.PodDisruptionBudget:
+		expected.SetResourceVersion(observed.GetResourceVersion())
 	}
 	return true
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *MySQLSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowBaseStatus)
-	status.MySQL = ComponentStatus{}
+// Differs returns true if the resource needs to be updated
+func (s *MySQLSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
+}
+
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.MySQL.update(reconciled, err)
-		if status.MySQL.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowBaseStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
 // ------------------------------ POSTGRES  ---------------------------------------
 
-func (s *PostgresSpec) service(r *AirflowBase) *resources.Service {
+func (s *PostgresSpec) service(r *AirflowBase) *resource.Object {
 	return service(r, ValueAirflowComponentPostgres,
 		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
 		[]corev1.ServicePort{{Name: "postgres", Port: 5432}})
 }
 
-func (s *PostgresSpec) podDisruption(r *AirflowBase) *resources.PodDisruptionBudget {
+func (s *PostgresSpec) podDisruption(r *AirflowBase) *resource.Object {
 	return podDisruption(r, ValueAirflowComponentPostgres, "", "100%")
 }
 
-func (s *PostgresSpec) secret(r *AirflowBase) *resources.Secret {
+func (s *PostgresSpec) secret(r *AirflowBase) *resource.Object {
 	name, labels, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", true)
-	return &resources.Secret{
-		Secret: &corev1.Secret{
+	return &resource.Object{
+		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
 			Data: map[string][]byte{
 				"password":     RandomAlphanumericString(16),
@@ -650,7 +637,7 @@ func (s *PostgresSpec) secret(r *AirflowBase) *resources.Secret {
 	}
 }
 
-func (s *PostgresSpec) sts(r *AirflowBase) *resources.StatefulSet {
+func (s *PostgresSpec) sts(r *AirflowBase) *resource.Object {
 	sqlSecret, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
 	ss := sts(r, ValueAirflowComponentPostgres, "", true)
 	ss.Spec.Replicas = &s.Replicas
@@ -707,134 +694,118 @@ func (s *PostgresSpec) sts(r *AirflowBase) *resources.StatefulSet {
 			},
 		},
 	}
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
+}
+
+// Mutate - mutate expected
+func (s *PostgresSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *PostgresSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *PostgresSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	if s.Operator {
-		return nil
-	}
-	rsrcInfos := []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.secret(r), ""},
-		ResourceInfo{LifecycleManaged, s.service(r), ""},
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-		ResourceInfo{LifecycleManaged, s.podDisruption(r), ""},
+	if !s.Operator {
+		resources.Add(
+			*s.secret(r),
+			*s.service(r),
+			*s.sts(r),
+			*s.podDisruption(r),
+		)
 	}
 	//if s.VolumeClaimTemplate != nil {
 	//	rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
 	//}
-	return rsrcInfos
+	return resources, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for those resources created by
-// the operator for this spec and those resources referenced by this operator.
-func (s *PostgresSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowBase)
-	if s.Operator {
-		return nil
-	}
-	selector := selectorLabels(r, ValueAirflowComponentPostgres)
-	secretSelector := selectorLabels(r, ValueAirflowComponentPostgres)
-	rsrcSelectos := []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Service{}, selector},
-		{&resources.Secret{}, secretSelector},
-		{&resources.PodDisruptionBudget{}, selector},
-	}
-	//if s.VolumeClaimTemplate != nil {
-	//	rsrcSelectos = append(rsrcSelectos, ResourceSelector{s.VolumeClaimTemplate, nil})
-	//}
-	return rsrcSelectos
+// Observables - return selectors
+func (s *PostgresSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *PostgresSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	switch expected.Obj.(type) {
-	case *resources.Secret:
-		// Dont update a secret
-		return false
-	case *resources.Service:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-		expected.Obj.(*resources.Service).Spec.ClusterIP = observed.Obj.(*resources.Service).Spec.ClusterIP
-	case *resources.PodDisruptionBudget:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-	}
-	return true
+func (s *PostgresSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *PostgresSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowBaseStatus)
-	status.Postgres = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.Postgres.update(reconciled, err)
-		if status.Postgres.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowBaseStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
 // ------------------------------ Airflow UI ---------------------------------------
 
-func (s *AirflowUISpec) secret(r *AirflowCluster) *resources.Secret {
+func (s *AirflowUISpec) secret(r *AirflowCluster) *resource.Object {
 	name, labels, _ := nameAndLabels(r, ValueAirflowComponentUI, "", true)
-	return &resources.Secret{
-		Secret: &corev1.Secret{
+	return &resource.Object{
+		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
 			Data: map[string][]byte{
 				"password": RandomAlphanumericString(16),
 			},
 		},
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &corev1.SecretList{},
 	}
+}
+
+// Mutate - mutate expected
+func (s *AirflowUISpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *AirflowUISpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	return []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-		ResourceInfo{LifecycleManaged, s.secret(r), ""},
-	}
+	resources.Add(*s.sts(r), *s.secret(r))
+	return resources, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for resources created
-func (s *AirflowUISpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowCluster)
-	selector := selectorLabels(r, ValueAirflowComponentUI)
-	return []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Secret{}, selector},
-	}
+// Observables - return selectors
+func (s *AirflowUISpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *AirflowUISpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	// TODO
-	switch expected.Obj.(type) {
-	case *resources.Secret:
-		// Dont update a secret
-		return false
-	}
-	return true
+func (s *AirflowUISpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *AirflowUISpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowClusterStatus)
-	status.UI = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.UI.update(reconciled, err)
-		if status.UI.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowClusterStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
-func (s *AirflowUISpec) sts(r *AirflowCluster) *resources.StatefulSet {
+func (s *AirflowUISpec) sts(r *AirflowCluster) *resource.Object {
 	volName := "dags-data"
 	ss := sts(r, ValueAirflowComponentUI, "", false)
 	ss.Spec.Replicas = &s.Replicas
@@ -886,33 +857,41 @@ func (s *AirflowUISpec) sts(r *AirflowCluster) *resources.StatefulSet {
 	r.addAirflowContainers(ss, containers, volName)
 	r.addMySQLUserDBContainer(ss)
 	//	r.addPostgresUserDBContainer(ss)
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
 }
 
 // ------------------------------ NFSStoreSpec ---------------------------------------
 
+// Mutate - mutate expected
+func (s *NFSStoreSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
+}
+
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	return []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-		ResourceInfo{LifecycleManaged, s.service(r), ""},
-		ResourceInfo{LifecycleManaged, s.podDisruption(r), ""},
-	}
+	resources.Add(*s.sts(r), *s.service(r), *s.podDisruption(r))
+	return resources, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for resources created
-func (s *NFSStoreSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowBase)
-	selector := selectorLabels(r, ValueAirflowComponentNFS)
-	return []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Service{}, selector},
-		{&resources.PodDisruptionBudget{}, selector},
-	}
+// Observables - return selectors
+func (s *NFSStoreSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
-func (s *NFSStoreSpec) sts(r *AirflowBase) *resources.StatefulSet {
+func (s *NFSStoreSpec) sts(r *AirflowBase) *resource.Object {
 	ss := sts(r, ValueAirflowComponentNFS, "", true)
 	ss.Spec.PodManagementPolicy = PodManagementPolicyParallel
 	volName := "nfs-data"
@@ -945,14 +924,18 @@ func (s *NFSStoreSpec) sts(r *AirflowBase) *resources.StatefulSet {
 			},
 		},
 	}
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
 }
 
-func (s *NFSStoreSpec) podDisruption(r *AirflowBase) *resources.PodDisruptionBudget {
+func (s *NFSStoreSpec) podDisruption(r *AirflowBase) *resource.Object {
 	return podDisruption(r, ValueAirflowComponentNFS, "", "100%")
 }
 
-func (s *NFSStoreSpec) service(r *AirflowBase) *resources.Service {
+func (s *NFSStoreSpec) service(r *AirflowBase) *resource.Object {
 	return service(r, ValueAirflowComponentNFS, "",
 		[]corev1.ServicePort{
 			{Name: "nfs", Port: 2049},
@@ -962,38 +945,26 @@ func (s *NFSStoreSpec) service(r *AirflowBase) *resources.Service {
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *NFSStoreSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	// TODO
-	switch expected.Obj.(type) {
-	case *resources.Service:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-		expected.Obj.(*resources.Service).Spec.ClusterIP = observed.Obj.(*resources.Service).Spec.ClusterIP
-	case *resources.PodDisruptionBudget:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-	}
-	return true
+func (s *NFSStoreSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *NFSStoreSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowBaseStatus)
-	status.Storage = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.Storage.update(reconciled, err)
-		if status.Storage.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowBaseStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
 // ------------------------------ SQLProxy ---------------------------------------
-func (s *SQLProxySpec) service(r *AirflowBase) *resources.Service {
+func (s *SQLProxySpec) service(r *AirflowBase) *resource.Object {
 	return service(r, ValueAirflowComponentSQLProxy,
 		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
 		[]corev1.ServicePort{{Name: "sqlproxy", Port: 3306}})
 }
 
-func (s *SQLProxySpec) sts(r *AirflowBase) *resources.StatefulSet {
+func (s *SQLProxySpec) sts(r *AirflowBase) *resource.Object {
 	ss := sts(r, ValueAirflowComponentSQLProxy, "", true)
 	instance := s.Project + ":" + s.Region + ":" + s.Instance + "=tcp:0.0.0.0:3306"
 	ss.Spec.Template.Spec.Containers = []corev1.Container{
@@ -1016,85 +987,81 @@ func (s *SQLProxySpec) sts(r *AirflowBase) *resources.StatefulSet {
 			},
 		},
 	}
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
+}
+
+// Mutate - mutate expected
+func (s *SQLProxySpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *SQLProxySpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *SQLProxySpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
 	name, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
-	return []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.service(r), ""},
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-		ResourceInfo{LifecycleReferred,
-			&resources.Secret{
-				Secret: &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: r.Namespace,
-						Name:      name,
-					}}},
-			""},
-	}
-}
-
-// ObserveSelectors returns the list of resource/selecitos for those resources created by
-// the operator for this spec and those resources referenced by this operator.
-func (s *SQLProxySpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowBase)
-	selector := selectorLabels(r, ValueAirflowComponentSQLProxy)
-	svcselector := selectorLabels(r, ValueAirflowComponentSQLProxy)
-	name, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
-	return []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Service{}, svcselector},
-		{&resources.Secret{
-			Secret: &corev1.Secret{
+	resources.Add(
+		*s.service(r),
+		*s.sts(r),
+		resource.Object{
+			Lifecycle: resource.LifecycleReferred,
+			Obj: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: r.Namespace,
 					Name:      name,
-				}}},
-			nil},
-	}
+				},
+			},
+		})
+	return resources, nil
+}
+
+// Observables - return selectors
+func (s *SQLProxySpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *SQLProxySpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	switch expected.Obj.(type) {
-	case *resources.Service:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-		expected.Obj.(*resources.Service).Spec.ClusterIP = observed.Obj.(*resources.Service).Spec.ClusterIP
-	}
-	return true
+func (s *SQLProxySpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *SQLProxySpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowBaseStatus)
-	status.SQLProxy = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.SQLProxy.update(reconciled, err)
-		if status.SQLProxy.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowBaseStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
 // ------------------------------ RedisSpec ---------------------------------------
-func (s *RedisSpec) service(r *AirflowCluster) *resources.Service {
+func (s *RedisSpec) service(r *AirflowCluster) *resource.Object {
 	return service(r, ValueAirflowComponentRedis, "",
 		[]corev1.ServicePort{{Name: "redis", Port: 6379}})
 }
 
-func (s *RedisSpec) podDisruption(r *AirflowCluster) *resources.PodDisruptionBudget {
+func (s *RedisSpec) podDisruption(r *AirflowCluster) *resource.Object {
 	return podDisruption(r, ValueAirflowComponentRedis, "", "100%")
 }
 
-func (s *RedisSpec) secret(r *AirflowCluster) *resources.Secret {
+func (s *RedisSpec) secret(r *AirflowCluster) *resource.Object {
 	name, labels, _ := nameAndLabels(r, ValueAirflowComponentRedis, "", true)
-	return &resources.Secret{
-		Secret: &corev1.Secret{
+	return &resource.Object{
+		ObjList:   &corev1.SecretList{},
+		Lifecycle: resource.LifecycleManaged,
+		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
 			Data: map[string][]byte{
 				"password": RandomAlphanumericString(16),
@@ -1103,7 +1070,7 @@ func (s *RedisSpec) secret(r *AirflowCluster) *resources.Secret {
 	}
 }
 
-func (s *RedisSpec) sts(r *AirflowCluster) *resources.StatefulSet {
+func (s *RedisSpec) sts(r *AirflowCluster) *resource.Object {
 	redisSecret, _, _ := nameAndLabels(r, ValueAirflowComponentRedis, "", false)
 	ss := sts(r, ValueAirflowComponentRedis, "", true)
 	volName := "redis-data"
@@ -1163,67 +1130,53 @@ func (s *RedisSpec) sts(r *AirflowCluster) *resources.StatefulSet {
 			},
 		},
 	}
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
+}
+
+// Mutate - mutate expected
+func (s *RedisSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *RedisSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *RedisSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	rsrcInfos := []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.secret(r), ""},
-		ResourceInfo{LifecycleManaged, s.service(r), ""},
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-		ResourceInfo{LifecycleManaged, s.podDisruption(r), ""},
-	}
+	resources.Add(*s.secret(r), *s.service(r), *s.sts(r), *s.podDisruption(r))
+	return resources, nil
 	//if s.VolumeClaimTemplate != nil {
 	//		rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
 	//	}
-	return rsrcInfos
 }
 
-// ObserveSelectors returns the list of resource/selecitos for those resources created by
-// the operator for this spec and those resources referenced by this operator.
-func (s *RedisSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowCluster)
-	selector := selectorLabels(r, ValueAirflowComponentRedis)
-	rsrcSelectos := []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Service{}, selector},
-		{&resources.Secret{}, selector},
-		{&resources.PodDisruptionBudget{}, selector},
-	}
-	//if s.VolumeClaimTemplate != nil {
-	//	rsrcSelectos = append(rsrcSelectos, ResourceSelector{s.VolumeClaimTemplate, nil})
-	//}
-	return rsrcSelectos
+// Observables - return selectors
+func (s *RedisSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *RedisSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	switch expected.Obj.(type) {
-	case *resources.Secret:
-		// Dont update a secret
-		return false
-	case *resources.Service:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-		expected.Obj.(*resources.Service).Spec.ClusterIP = observed.Obj.(*resources.Service).Spec.ClusterIP
-	case *resources.PodDisruptionBudget:
-		expected.Obj.SetResourceVersion(observed.Obj.GetResourceVersion())
-	}
-	return true
+func (s *RedisSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *RedisSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowClusterStatus)
-	status.Redis = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *RedisSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.Redis.update(reconciled, err)
-		if status.Redis.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowClusterStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
@@ -1309,18 +1262,23 @@ func (s *DagSpec) container(volName string) (bool, corev1.Container) {
 	return init, container
 }
 
-func (s *SchedulerSpec) serviceaccount(r *AirflowCluster) *resources.ServiceAccount {
+func (s *SchedulerSpec) serviceaccount(r *AirflowCluster) *resource.Object {
 	name, labels, _ := nameAndLabels(r, ValueAirflowComponentScheduler, "", true)
-	return &resources.ServiceAccount{
-		ServiceAccount: &corev1.ServiceAccount{
+	return &resource.Object{
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &corev1.ServiceAccountList{},
+		Obj: &corev1.ServiceAccount{
 			ObjectMeta: r.getMeta(name, labels),
-		}}
+		},
+	}
 }
 
-func (s *SchedulerSpec) rb(r *AirflowCluster) *resources.RoleBinding {
+func (s *SchedulerSpec) rb(r *AirflowCluster) *resource.Object {
 	name, labels, _ := nameAndLabels(r, ValueAirflowComponentScheduler, "", true)
-	return &resources.RoleBinding{
-		RoleBinding: &rbacv1.RoleBinding{
+	return &resource.Object{
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &rbacv1.RoleBindingList{},
+		Obj: &rbacv1.RoleBinding{
 			ObjectMeta: r.getMeta(name, labels),
 			Subjects: []rbacv1.Subject{
 				{Kind: "ServiceAccount", Name: name, Namespace: r.Namespace},
@@ -1330,7 +1288,7 @@ func (s *SchedulerSpec) rb(r *AirflowCluster) *resources.RoleBinding {
 	}
 }
 
-func (s *SchedulerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
+func (s *SchedulerSpec) sts(r *AirflowCluster) *resource.Object {
 	volName := "dags-data"
 	ss := sts(r, ValueAirflowComponentScheduler, "", true)
 	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
@@ -1369,90 +1327,71 @@ func (s *SchedulerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
 		},
 	}
 	r.addAirflowContainers(ss, containers, volName)
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
+}
+
+// Mutate - mutate expected
+func (s *SchedulerSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *SchedulerSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	rsrcInfos := []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.serviceaccount(r), ""},
-		ResourceInfo{LifecycleManaged, s.rb(r), ""},
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-	}
+	resources.Add(*s.serviceaccount(r), *s.rb(r), *s.sts(r))
 
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
-			rsrcInfos = append(rsrcInfos,
-				ResourceInfo{LifecycleReferred,
-					&resources.Secret{
-						Secret: &corev1.Secret{
-							ObjectMeta: metav1.ObjectMeta{
-								Namespace: r.Namespace,
-								Name:      git.CredSecretRef.Name,
-							}}},
-					""})
+			resources.Add(resource.Object{
+				Lifecycle: resource.LifecycleReferred,
+				Obj: &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: r.Namespace,
+						Name:      git.CredSecretRef.Name,
+					},
+				},
+			})
 		}
 	}
 
-	return rsrcInfos
+	return resources, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for those resources created by
-// the operator for this spec and those resources referenced by this operator.
-func (s *SchedulerSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowCluster)
-	selector := selectorLabels(r, ValueAirflowComponentScheduler)
-	rsrcSelectors := []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.ServiceAccount{}, selector},
-		{&resources.RoleBinding{}, selector},
-	}
-
-	if r.Spec.DAGs != nil {
-		git := r.Spec.DAGs.Git
-		if git != nil && git.CredSecretRef != nil {
-			rsrcSelectors = append(rsrcSelectors, ResourceSelector{
-				&resources.Secret{
-					Secret: &corev1.Secret{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace: r.Namespace,
-							Name:      git.CredSecretRef.Name,
-						}}},
-				nil})
-		}
-	}
-
-	return rsrcSelectors
+// Observables - return selectors
+func (s *SchedulerSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *SchedulerSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	switch expected.Obj.(type) {
-	case *resources.ServiceAccount:
-		// Dont update a SA
-		return false
-	}
-	return true
+func (s *SchedulerSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *SchedulerSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowClusterStatus)
-	status.Scheduler = SchedulerStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.Scheduler.Resources.update(reconciled, err)
-		if status.Scheduler.Resources.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowClusterStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
 // ------------------------------ Worker -
-func (s *WorkerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
+func (s *WorkerSpec) sts(r *AirflowCluster) *resource.Object {
 	ss := sts(r, ValueAirflowComponentWorker, "", true)
 	volName := "dags-data"
 	ss.Spec.Replicas = &s.Replicas
@@ -1484,94 +1423,95 @@ func (s *WorkerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
 		},
 	}
 	r.addAirflowContainers(ss, containers, volName)
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
+}
+
+// Mutate - mutate expected
+func (s *WorkerSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
+}
+
+// Finalize - execute finalizers
+func (s *WorkerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *WorkerSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
+func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	rsrcInfos := []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-	}
-	// TODO storage spec ?
-	return rsrcInfos
+	resources.Add(*s.sts(r))
+	return resources, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for those resources created by
-// the operator for this spec and those resources referenced by this operator.
-func (s *WorkerSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
-	r := rsrc.(*AirflowCluster)
-	selector := selectorLabels(r, ValueAirflowComponentWorker)
-	rsrcSelectors := []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-	}
-	return rsrcSelectors
+// Observables - return selectors
+func (s *WorkerSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *WorkerSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowClusterStatus)
-	status.Worker = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *WorkerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.Worker.update(reconciled, err)
-		if status.Worker.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowClusterStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *WorkerSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
+func (s *WorkerSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
 	// TODO
 	return true
 }
 
 // ------------------------------ Flower ---------------------------------------
 
-// ExpectedResources returns the list of resource/name for those resources created by
-func (s *FlowerSpec) ExpectedResources(rsrc interface{}) []ResourceInfo {
-	r := rsrc.(*AirflowCluster)
-	return []ResourceInfo{
-		ResourceInfo{LifecycleManaged, s.sts(r), ""},
-	}
+// Mutate - mutate expected
+func (s *FlowerSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	return expected, nil
 }
 
-// ObserveSelectors returns the list of resource/selecitos for resources created
-func (s *FlowerSpec) ObserveSelectors(rsrc interface{}) []ResourceSelector {
+// Finalize - execute finalizers
+func (s *FlowerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
+	r := rsrc.(*AirflowBase)
+	finalizer.Remove(r, finalizer.Cleanup)
+	return nil
+}
+
+// ExpectedResources returns the list of resource/name for those resources created by
+func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	selector := selectorLabels(r, ValueAirflowComponentFlower)
-	return []ResourceSelector{
-		{&resources.StatefulSet{}, selector},
-		{&resources.Secret{}, selector},
-	}
+	resources.Add(*s.sts(r))
+	return resources, nil
+}
+
+// Observables - return selectors
+func (s *FlowerSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *FlowerSpec) Differs(expected ResourceInfo, observed ResourceInfo) bool {
-	// TODO
-	switch expected.Obj.(type) {
-	case *resources.Secret:
-		// Dont update a secret
-		return false
-	}
-	return true
+func (s *FlowerSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+	return differs(expected, observed)
 }
 
-// UpdateStatus use reconciled objects to update component status
-func (s *FlowerSpec) UpdateStatus(rsrc interface{}, reconciled []ResourceInfo, err error) {
-	status := rsrc.(*AirflowClusterStatus)
-	status.Flower = ComponentStatus{}
+// UpdateComponentStatus use reconciled objects to update component status
+func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		status.Flower.update(reconciled, err)
-		if status.Flower.Status != StatusReady {
-			status.Status = StatusInProgress
-		}
+		stts := rsrci.(*AirflowClusterStatus)
+		stts.UpdateStatus(reconciled, err)
 	}
 }
 
-func (s *FlowerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
+func (s *FlowerSpec) sts(r *AirflowCluster) *resource.Object {
 	ss := sts(r, ValueAirflowComponentFlower, "", true)
 	volName := "dags-data"
 	ss.Spec.Replicas = &s.Replicas
@@ -1603,5 +1543,9 @@ func (s *FlowerSpec) sts(r *AirflowCluster) *resources.StatefulSet {
 		},
 	}
 	r.addAirflowContainers(ss, containers, volName)
-	return &resources.StatefulSet{StatefulSet: ss}
+	return &resource.Object{
+		Obj:       ss,
+		Lifecycle: resource.LifecycleManaged,
+		ObjList:   &appsv1.StatefulSetList{},
+	}
 }

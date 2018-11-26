@@ -14,7 +14,7 @@ The Airflow Operator is still under active development and has not been extensiv
 
 ## Prerequisites
 * Version >= 1.9 of Kubernetes.
-* Uses 1.9 of Airflow (1.10.0rc2+ for k8s executor)
+* Uses 1.9 of Airflow (1.10.1+ for k8s executor)
 * Uses 4.0.x of Redis (for celery operator)
 * Uses 5.7 of MySQL
 

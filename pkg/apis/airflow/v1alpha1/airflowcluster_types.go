@@ -36,8 +36,8 @@ const (
 	ExecutorK8s             = "Kubernetes"
 	defaultExecutor         = ExecutorLocal
 	defaultBranch           = "master"
-	defaultWorkerVersion    = "1.10.0rc2"
-	defaultSchedulerVersion = "1.10.0rc2"
+	defaultWorkerVersion    = "1.10.1"
+	defaultSchedulerVersion = "1.10.1"
 )
 
 var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCelery, ExecutorK8s}

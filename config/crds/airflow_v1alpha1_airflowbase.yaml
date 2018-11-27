@@ -4,9 +4,9 @@ metadata:
   creationTimestamp: null
   labels:
     controller-tools.k8s.io: "1.0"
-  name: airflowbases.airflow.airflow.k8s.io
+  name: airflowbases.airflow.k8s.io
 spec:
-  group: airflow.airflow.k8s.io
+  group: airflow.k8s.io
   names:
     kind: AirflowBase
     plural: airflowbases
@@ -64,9 +64,6 @@ spec:
                   type: string
                 volumeClaimTemplate:
                   type: object
-              required:
-              - image
-              - version
               type: object
             nodeSelector:
               type: object
@@ -85,9 +82,6 @@ spec:
                   type: string
                 volumeClaimTemplate:
                   type: object
-              required:
-              - image
-              - version
               type: object
             sqlproxy:
               properties:
@@ -120,9 +114,6 @@ spec:
                   type: string
                 volumeClaimTemplate:
                   type: object
-              required:
-              - image
-              - version
               type: object
           type: object
         status:

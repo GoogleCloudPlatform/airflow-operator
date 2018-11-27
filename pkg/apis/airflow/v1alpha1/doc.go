@@ -19,5 +19,5 @@ limitations under the License.
 // +k8s:deepcopy-gen=package,register
 // +k8s:conversion-gen=k8s.io/airflow-operator/pkg/apis/airflow
 // +k8s:defaulter-gen=TypeMeta
-// +groupName=airflow.airflow.k8s.io
+// +groupName=airflow.k8s.io
 package v1alpha1

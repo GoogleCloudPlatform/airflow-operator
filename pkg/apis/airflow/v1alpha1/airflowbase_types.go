@@ -116,10 +116,10 @@ func (s *AirflowBaseSpec) validate(fp *field.Path) field.ErrorList {
 type PostgresSpec struct {
 	// Image defines the Postgres Docker image name
 	// +optional
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// Version defines the Postgres Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running Postgres instances in a cluster
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
@@ -154,10 +154,10 @@ func (s *PostgresSpec) validate(fp *field.Path) field.ErrorList {
 type MySQLSpec struct {
 	// Image defines the MySQL Docker image name
 	// +optional
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// Version defines the MySQL Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running MySQL instances in a cluster
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
@@ -306,9 +306,11 @@ func (s *AirflowUISpec) validate(fp *field.Path) field.ErrorList {
 // NFSStoreSpec defines the attributes to deploy Airflow Storage component
 type NFSStoreSpec struct {
 	// Image defines the NFS Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the NFS Server Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`

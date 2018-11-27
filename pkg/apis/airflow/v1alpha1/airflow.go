@@ -607,7 +607,7 @@ func (s *MySQLSpec) Differs(expected metav1.Object, observed metav1.Object) bool
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowBaseStatus)
+		stts := statusi.(*AirflowBaseStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -746,7 +746,7 @@ func (s *PostgresSpec) Differs(expected metav1.Object, observed metav1.Object) b
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowBaseStatus)
+		stts := statusi.(*AirflowBaseStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -800,7 +800,7 @@ func (s *AirflowUISpec) Differs(expected metav1.Object, observed metav1.Object) 
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowClusterStatus)
+		stts := statusi.(*AirflowClusterStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -952,7 +952,7 @@ func (s *NFSStoreSpec) Differs(expected metav1.Object, observed metav1.Object) b
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowBaseStatus)
+		stts := statusi.(*AirflowBaseStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -1041,7 +1041,7 @@ func (s *SQLProxySpec) Differs(expected metav1.Object, observed metav1.Object) b
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowBaseStatus)
+		stts := statusi.(*AirflowBaseStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -1175,7 +1175,7 @@ func (s *RedisSpec) Differs(expected metav1.Object, observed metav1.Object) bool
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *RedisSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowClusterStatus)
+		stts := statusi.(*AirflowClusterStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -1385,7 +1385,7 @@ func (s *SchedulerSpec) Differs(expected metav1.Object, observed metav1.Object) 
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowClusterStatus)
+		stts := statusi.(*AirflowClusterStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -1460,7 +1460,7 @@ func (s *WorkerSpec) Observables(rsrc interface{}, rsrclabels map[string]string,
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *WorkerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowClusterStatus)
+		stts := statusi.(*AirflowClusterStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }
@@ -1506,7 +1506,7 @@ func (s *FlowerSpec) Differs(expected metav1.Object, observed metav1.Object) boo
 // UpdateComponentStatus use reconciled objects to update component status
 func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled []metav1.Object, err error) {
 	if s != nil {
-		stts := rsrci.(*AirflowClusterStatus)
+		stts := statusi.(*AirflowClusterStatus)
 		stts.UpdateStatus(reconciled, err)
 	}
 }

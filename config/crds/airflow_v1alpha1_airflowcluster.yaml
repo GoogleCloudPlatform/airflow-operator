@@ -4,9 +4,9 @@ metadata:
   creationTimestamp: null
   labels:
     controller-tools.k8s.io: "1.0"
-  name: airflowclusters.airflow.airflow.k8s.io
+  name: airflowclusters.airflow.k8s.io
 spec:
-  group: airflow.airflow.k8s.io
+  group: airflow.k8s.io
   names:
     kind: AirflowCluster
     plural: airflowclusters

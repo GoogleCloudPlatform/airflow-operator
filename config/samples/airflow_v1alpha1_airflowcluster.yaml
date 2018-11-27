@@ -1,4 +1,4 @@
-apiVersion: airflow.airflow.k8s.io/v1alpha1
+apiVersion: airflow.k8s.io/v1alpha1
 kind: AirflowCluster
 metadata:
   labels:

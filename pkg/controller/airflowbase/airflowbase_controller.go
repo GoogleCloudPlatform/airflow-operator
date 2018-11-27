@@ -21,8 +21,6 @@ package airflowbase
 // TODO retry.Retry
 //
 // Minor:
-// TODO review logic stsToAirflowBase
-// TODO cr.spec.generation is not incrementing - bug in api ?
 // TODO reconcile based on hash(spec)
 // TODO validation: assume resources and volume claims are validated by api server ?
 // TODO parameterize controller using config maps for default images, versions, resources etc

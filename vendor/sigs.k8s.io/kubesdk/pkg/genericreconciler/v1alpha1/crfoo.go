@@ -21,6 +21,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"log"
@@ -106,7 +107,7 @@ func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]stri
 }
 
 // Observables - return selectors
-func (s *FooSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+func (s *FooSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
 	return []resource.Observable{
 		{
 			ObjList: &appsv1.DeploymentList{},

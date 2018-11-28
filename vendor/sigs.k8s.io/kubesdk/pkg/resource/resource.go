@@ -16,6 +16,7 @@ package resource
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -70,13 +71,27 @@ func ObjFromFile(path string, values interface{}, list metav1.ListInterface) (*O
 }
 
 // ObservablesFromObjects returns ObservablesFromObjects
-func ObservablesFromObjects(bag *ObjectBag, labels map[string]string) []Observable {
+func ObservablesFromObjects(scheme *runtime.Scheme, bag *ObjectBag, labels map[string]string) []Observable {
+	var gk schema.GroupKind
 	var observables []Observable
 	gkmap := map[schema.GroupKind]struct{}{}
 	for _, obj := range bag.Items() {
 		if obj.ObjList != nil {
 			ro := obj.Obj.(runtime.Object)
-			gk := ro.GetObjectKind().GroupVersionKind().GroupKind()
+			kinds, _, err := scheme.ObjectKinds(ro)
+			if err == nil {
+				// Expect only 1 kind.  If there is more than one kind this is probably an edge case such as ListOptions.
+				if len(kinds) != 1 {
+					err = fmt.Errorf("Expected exactly 1 kind for Object %T, but found %s kinds", ro, kinds)
+
+				}
+			}
+			// Cache the Group and Kind for the OwnerType
+			if err == nil {
+				gk = schema.GroupKind{Group: kinds[0].Group, Kind: kinds[0].Kind}
+			} else {
+				gk = ro.GetObjectKind().GroupVersionKind().GroupKind()
+			}
 			if _, ok := gkmap[gk]; !ok {
 				gkmap[gk] = struct{}{}
 				observable := Observable{

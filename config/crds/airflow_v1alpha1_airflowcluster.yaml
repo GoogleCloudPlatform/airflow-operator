@@ -83,9 +83,6 @@ spec:
                   type: object
                 version:
                   type: string
-              required:
-              - image
-              - version
               type: object
             labels:
               type: object
@@ -105,9 +102,6 @@ spec:
                   type: string
                 volumeClaimTemplate:
                   type: object
-              required:
-              - image
-              - version
               type: object
             scheduler:
               properties:
@@ -121,11 +115,6 @@ spec:
                   type: object
                 version:
                   type: string
-              required:
-              - image
-              - version
-              - database
-              - dbuser
               type: object
             ui:
               properties:
@@ -138,9 +127,6 @@ spec:
                   type: object
                 version:
                   type: string
-              required:
-              - image
-              - version
               type: object
             worker:
               properties:
@@ -153,9 +139,6 @@ spec:
                   type: object
                 version:
                   type: string
-              required:
-              - image
-              - version
               type: object
           type: object
         status:

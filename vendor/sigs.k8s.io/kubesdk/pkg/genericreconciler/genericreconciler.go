@@ -50,7 +50,7 @@ func (gr *Reconciler) observe(observables []resource.Observable) (*resource.Obje
 	for _, obs := range observables {
 		var resources []resource.Object
 		if obs.Labels != nil {
-			//log.Printf("   >list: %s labels:[%v]", reflect.TypeOf(obs.ObjList).String(), obs.Labels)
+			//log.Printf("   >>>list: %s labels:[%v]", reflect.TypeOf(obs.ObjList).String(), obs.Labels)
 			opts := client.MatchingLabels(obs.Labels)
 			opts.Raw = &metav1.ListOptions{TypeMeta: obs.Type}
 			err = gr.List(context.TODO(), opts, obs.ObjList.(runtime.Object))
@@ -80,8 +80,10 @@ func (gr *Reconciler) observe(observables []resource.Observable) (*resource.Obje
 				types.NamespacedName{Name: name, Namespace: namespace},
 				obs.Obj.(runtime.Object))
 			if err == nil {
-				log.Printf("   >get: %s", otype+"/"+namespace+"/"+name)
+				log.Printf("   >>get: %s", otype+"/"+namespace+"/"+name)
 				resources = append(resources, resource.Object{Obj: obs.Obj})
+			} else {
+				log.Printf("   >>>ERR get: %s", otype+"/"+namespace+"/"+name)
 			}
 		}
 		if err != nil {
@@ -165,7 +167,7 @@ func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, sta
 	expected, err = c.ExpectedResources(c.CR, c.Labels())
 	if err == nil && expected != nil {
 		// Get observables
-		observables := c.Observables(c.CR, c.Labels(), expected)
+		observables := c.Observables(gr.Scheme, c.CR, c.Labels(), expected)
 		// Observe observables
 		stage = "observing resources"
 		observed, err = gr.observe(observables)

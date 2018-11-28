@@ -15,13 +15,14 @@ package component
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/kubesdk/pkg/resource"
 )
 
 // Handle is an interface for operating on logical Components of a CR
 type Handle interface {
 	ExpectedResources(rsrc interface{}, labels map[string]string) (*resource.ObjectBag, error)
-	Observables(rsrc interface{}, labels map[string]string, expected *resource.ObjectBag) []resource.Observable
+	Observables(scheme *runtime.Scheme, rsrc interface{}, labels map[string]string, expected *resource.ObjectBag) []resource.Observable
 	Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error)
 	Differs(expected metav1.Object, observed metav1.Object) bool
 	UpdateComponentStatus(rsrc, status interface{}, reconciled []metav1.Object, err error)

@@ -22,7 +22,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1beta1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"math/rand"
@@ -81,11 +81,9 @@ var (
 // AirflowResource an interface for operating on AirflowResource
 type AirflowResource interface {
 	getMeta(name string, labels map[string]string) metav1.ObjectMeta
-	getAnnotations() map[string]string
 	getAffinity() *corev1.Affinity
 	getNodeSelector() map[string]string
 	getName() string
-	getNameSpace() string
 	getLabels() map[string]string
 	getCRName() string
 }
@@ -119,54 +117,11 @@ func envFromSecret(name string, key string) *corev1.EnvVarSource {
 	}
 }
 
-// RsrcLabels return resource labels
-func RsrcLabels(cr, name, component string) map[string]string {
-	return map[string]string{
-		LabelAirflowCR:        cr,
-		LabelAirflowCRName:    name,
-		LabelAirflowComponent: component,
-	}
-}
-
-func selectorLabels(r AirflowResource, component string) labels.Selector {
-	return labels.Set(RsrcLabels(r.getCRName(), r.getName(), component)).AsSelector()
-}
-
 func rsrcName(name string, component string, suffix string) string {
 	return name + "-" + component + suffix
 }
 
-func nameAndLabels(r AirflowResource, component string, suffix string, needlabels bool) (string, map[string]string, map[string]string) {
-	name := rsrcName(r.getName(), component, suffix)
-
-	if !needlabels {
-		return name, nil, nil
-	}
-
-	labels := r.getLabels()
-	matchlabels := make(map[string]string)
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-
-	labels[LabelAirflowCR] = r.getCRName()
-	labels[LabelAirflowCRName] = r.getName()
-	labels[LabelApp] = name
-	labels[LabelAirflowComponent] = component
-	labels[LabelControllerVersion] = ControllerVersion
-	matchlabels[LabelAirflowCR] = r.getCRName()
-	matchlabels[LabelAirflowCRName] = r.getName()
-	matchlabels[LabelAirflowComponent] = component
-	matchlabels[LabelApp] = name
-
-	return name, labels, matchlabels
-}
-
 func (r *AirflowBase) getName() string { return r.Name }
-
-func (r *AirflowBase) getNameSpace() string { return r.Namespace }
-
-func (r *AirflowBase) getAnnotations() map[string]string { return r.Spec.Annotations }
 
 func (r *AirflowBase) getAffinity() *corev1.Affinity { return r.Spec.Affinity }
 
@@ -193,10 +148,6 @@ func (r *AirflowBase) getMeta(name string, labels map[string]string) metav1.Obje
 }
 
 func (r *AirflowCluster) getName() string { return r.Name }
-
-func (r *AirflowCluster) getNameSpace() string { return r.Namespace }
-
-func (r *AirflowCluster) getAnnotations() map[string]string { return r.Spec.Annotations }
 
 func (r *AirflowCluster) getAffinity() *corev1.Affinity { return r.Spec.Affinity }
 
@@ -247,7 +198,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 	sp := r.Spec
 	sqlSvcName := rsrcName(sp.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
-	redisSecret, _, _ := nameAndLabels(r, ValueAirflowComponentRedis, "", false)
+	redisSecret := rsrcName(r.Name, ValueAirflowComponentRedis, "")
 	redisSvcName := redisSecret
 	dagFolder := AirflowDagsBase
 	if sp.DAGs != nil {
@@ -384,23 +335,24 @@ PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREAT
 //  resources
 //  volume, volume mount
 //  pod spec
-func sts(r AirflowResource, component string, suffix string, svc bool) *appsv1.StatefulSet {
-	name, labels, matchlabels := nameAndLabels(r, component, suffix, true)
+func sts(r AirflowResource, component string, suffix string, svc bool, labels map[string]string) *appsv1.StatefulSet {
+	name := rsrcName(r.getName(), component, suffix)
 	svcName := ""
 	if svc {
 		svcName = name
 	}
 
+	meta := r.getMeta(name, labels)
 	return &appsv1.StatefulSet{
-		ObjectMeta: r.getMeta(name, labels),
+		ObjectMeta: meta,
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: svcName,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: matchlabels,
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: r.getAnnotations(),
+					Annotations: meta.Annotations,
 					Labels:      labels,
 				},
 				Spec: corev1.PodSpec{
@@ -413,8 +365,8 @@ func sts(r AirflowResource, component string, suffix string, svc bool) *appsv1.S
 	}
 }
 
-func service(r AirflowResource, component string, name string, ports []corev1.ServicePort) *resource.Object {
-	sname, labels, matchlabels := nameAndLabels(r, component, "", true)
+func service(r AirflowResource, component string, name string, labels map[string]string, ports []corev1.ServicePort) *resource.Object {
+	sname := rsrcName(r.getName(), component, "")
 	if name == "" {
 		name = sname
 	}
@@ -423,7 +375,7 @@ func service(r AirflowResource, component string, name string, ports []corev1.Se
 			ObjectMeta: r.getMeta(name, labels),
 			Spec: corev1.ServiceSpec{
 				Ports:    ports,
-				Selector: matchlabels,
+				Selector: labels,
 			},
 		},
 		Lifecycle: resource.LifecycleManaged,
@@ -431,17 +383,17 @@ func service(r AirflowResource, component string, name string, ports []corev1.Se
 	}
 }
 
-func podDisruption(r AirflowResource, component string, suffix string, minavail string) *resource.Object {
-	name, label, selectors := nameAndLabels(r, component, suffix, true)
+func podDisruption(r AirflowResource, component string, suffix string, minavail string, labels map[string]string) *resource.Object {
+	name := rsrcName(r.getName(), component, suffix)
 	minAvailable := intstr.Parse(minavail)
 
 	return &resource.Object{
 		Obj: &policyv1.PodDisruptionBudget{
-			ObjectMeta: r.getMeta(name, label),
+			ObjectMeta: r.getMeta(name, labels),
 			Spec: policyv1.PodDisruptionBudgetSpec{
 				MinAvailable: &minAvailable,
 				Selector: &metav1.LabelSelector{
-					MatchLabels: selectors,
+					MatchLabels: labels,
 				},
 			},
 		},
@@ -452,18 +404,18 @@ func podDisruption(r AirflowResource, component string, suffix string, minavail 
 
 // ------------------------------ MYSQL  ---------------------------------------
 
-func (s *MySQLSpec) service(r *AirflowBase) *resource.Object {
+func (s *MySQLSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
 	return service(r, ValueAirflowComponentMySQL,
-		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		rsrcName(r.Name, ValueAirflowComponentSQL, ""), labels,
 		[]corev1.ServicePort{{Name: "mysql", Port: 3306}})
 }
 
-func (s *MySQLSpec) podDisruption(r *AirflowBase) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentMySQL, "", "100%")
+func (s *MySQLSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
+	return podDisruption(r, ValueAirflowComponentMySQL, "", "100%", labels)
 }
 
-func (s *MySQLSpec) secret(r *AirflowBase) *resource.Object {
-	name, labels, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", true)
+func (s *MySQLSpec) secret(r *AirflowBase, labels map[string]string) *resource.Object {
+	name := rsrcName(r.getName(), ValueAirflowComponentSQL, "")
 	return &resource.Object{
 		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
@@ -477,9 +429,9 @@ func (s *MySQLSpec) secret(r *AirflowBase) *resource.Object {
 	}
 }
 
-func (s *MySQLSpec) sts(r *AirflowBase) *resource.Object {
-	sqlSecret, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
-	ss := sts(r, ValueAirflowComponentMySQL, "", true)
+func (s *MySQLSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
+	sqlSecret := rsrcName(r.getName(), ValueAirflowComponentSQL, "")
+	ss := sts(r, ValueAirflowComponentMySQL, "", true, labels)
 	ss.Spec.Replicas = &s.Replicas
 	volName := "mysql-data"
 	if s.VolumeClaimTemplate != nil {
@@ -564,10 +516,10 @@ func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 	r := rsrc.(*AirflowBase)
 	if !s.Operator {
 		resources.Add(
-			*s.secret(r),
-			*s.service(r),
-			*s.sts(r),
-			*s.podDisruption(r),
+			*s.secret(r, rsrclabels),
+			*s.service(r, rsrclabels),
+			*s.sts(r, rsrclabels),
+			*s.podDisruption(r, rsrclabels),
 		)
 	}
 	//if s.VolumeClaimTemplate != nil {
@@ -577,8 +529,9 @@ func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 }
 
 // Observables - return selectors
-func (s *MySQLSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *MySQLSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	oo := resource.ObservablesFromObjects(scheme, expected, rsrclabels)
+	return oo
 }
 
 // differs returns true if the resource needs to be updated
@@ -614,18 +567,19 @@ func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled
 
 // ------------------------------ POSTGRES  ---------------------------------------
 
-func (s *PostgresSpec) service(r *AirflowBase) *resource.Object {
+func (s *PostgresSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
 	return service(r, ValueAirflowComponentPostgres,
 		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		labels,
 		[]corev1.ServicePort{{Name: "postgres", Port: 5432}})
 }
 
-func (s *PostgresSpec) podDisruption(r *AirflowBase) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentPostgres, "", "100%")
+func (s *PostgresSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
+	return podDisruption(r, ValueAirflowComponentPostgres, "", "100%", labels)
 }
 
-func (s *PostgresSpec) secret(r *AirflowBase) *resource.Object {
-	name, labels, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", true)
+func (s *PostgresSpec) secret(r *AirflowBase, labels map[string]string) *resource.Object {
+	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
 	return &resource.Object{
 		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
@@ -637,9 +591,9 @@ func (s *PostgresSpec) secret(r *AirflowBase) *resource.Object {
 	}
 }
 
-func (s *PostgresSpec) sts(r *AirflowBase) *resource.Object {
-	sqlSecret, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
-	ss := sts(r, ValueAirflowComponentPostgres, "", true)
+func (s *PostgresSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
+	sqlSecret := rsrcName(r.Name, ValueAirflowComponentSQL, "")
+	ss := sts(r, ValueAirflowComponentPostgres, "", true, labels)
 	ss.Spec.Replicas = &s.Replicas
 	volName := "postgres-data"
 	if s.VolumeClaimTemplate != nil {
@@ -721,10 +675,10 @@ func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	r := rsrc.(*AirflowBase)
 	if !s.Operator {
 		resources.Add(
-			*s.secret(r),
-			*s.service(r),
-			*s.sts(r),
-			*s.podDisruption(r),
+			*s.secret(r, rsrclabels),
+			*s.service(r, rsrclabels),
+			*s.sts(r, rsrclabels),
+			*s.podDisruption(r, rsrclabels),
 		)
 	}
 	//if s.VolumeClaimTemplate != nil {
@@ -734,8 +688,8 @@ func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 }
 
 // Observables - return selectors
-func (s *PostgresSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *PostgresSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
@@ -753,8 +707,8 @@ func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 
 // ------------------------------ Airflow UI ---------------------------------------
 
-func (s *AirflowUISpec) secret(r *AirflowCluster) *resource.Object {
-	name, labels, _ := nameAndLabels(r, ValueAirflowComponentUI, "", true)
+func (s *AirflowUISpec) secret(r *AirflowCluster, labels map[string]string) *resource.Object {
+	name := rsrcName(r.Name, ValueAirflowComponentUI, "")
 	return &resource.Object{
 		Obj: &corev1.Secret{
 			ObjectMeta: r.getMeta(name, labels),
@@ -783,13 +737,13 @@ func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.sts(r), *s.secret(r))
+	resources.Add(*s.sts(r, rsrclabels), *s.secret(r, rsrclabels))
 	return resources, nil
 }
 
 // Observables - return selectors
-func (s *AirflowUISpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *AirflowUISpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
@@ -805,9 +759,9 @@ func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconc
 	}
 }
 
-func (s *AirflowUISpec) sts(r *AirflowCluster) *resource.Object {
+func (s *AirflowUISpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
 	volName := "dags-data"
-	ss := sts(r, ValueAirflowComponentUI, "", false)
+	ss := sts(r, ValueAirflowComponentUI, "", false, labels)
 	ss.Spec.Replicas = &s.Replicas
 	ss.Spec.PodManagementPolicy = PodManagementPolicyParallel
 	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
@@ -882,17 +836,21 @@ func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	resources.Add(*s.sts(r), *s.service(r), *s.podDisruption(r))
+	resources.Add(
+		*s.sts(r, rsrclabels),
+		*s.service(r, rsrclabels),
+		*s.podDisruption(r, rsrclabels),
+	)
 	return resources, nil
 }
 
 // Observables - return selectors
-func (s *NFSStoreSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *NFSStoreSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
-func (s *NFSStoreSpec) sts(r *AirflowBase) *resource.Object {
-	ss := sts(r, ValueAirflowComponentNFS, "", true)
+func (s *NFSStoreSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
+	ss := sts(r, ValueAirflowComponentNFS, "", true, labels)
 	ss.Spec.PodManagementPolicy = PodManagementPolicyParallel
 	volName := "nfs-data"
 	if s.Volume != nil {
@@ -931,12 +889,12 @@ func (s *NFSStoreSpec) sts(r *AirflowBase) *resource.Object {
 	}
 }
 
-func (s *NFSStoreSpec) podDisruption(r *AirflowBase) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentNFS, "", "100%")
+func (s *NFSStoreSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
+	return podDisruption(r, ValueAirflowComponentNFS, "", "100%", labels)
 }
 
-func (s *NFSStoreSpec) service(r *AirflowBase) *resource.Object {
-	return service(r, ValueAirflowComponentNFS, "",
+func (s *NFSStoreSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
+	return service(r, ValueAirflowComponentNFS, "", labels,
 		[]corev1.ServicePort{
 			{Name: "nfs", Port: 2049},
 			{Name: "mountd", Port: 20048},
@@ -958,14 +916,14 @@ func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 }
 
 // ------------------------------ SQLProxy ---------------------------------------
-func (s *SQLProxySpec) service(r *AirflowBase) *resource.Object {
+func (s *SQLProxySpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
 	return service(r, ValueAirflowComponentSQLProxy,
-		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		rsrcName(r.Name, ValueAirflowComponentSQL, ""), labels,
 		[]corev1.ServicePort{{Name: "sqlproxy", Port: 3306}})
 }
 
-func (s *SQLProxySpec) sts(r *AirflowBase) *resource.Object {
-	ss := sts(r, ValueAirflowComponentSQLProxy, "", true)
+func (s *SQLProxySpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
+	ss := sts(r, ValueAirflowComponentSQLProxy, "", true, labels)
 	instance := s.Project + ":" + s.Region + ":" + s.Instance + "=tcp:0.0.0.0:3306"
 	ss.Spec.Template.Spec.Containers = []corev1.Container{
 		{
@@ -1012,10 +970,10 @@ func (s *SQLProxySpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	name, _, _ := nameAndLabels(r, ValueAirflowComponentSQL, "", false)
+	name := rsrcName(r.Name, ValueAirflowComponentSQLProxy, "")
 	resources.Add(
-		*s.service(r),
-		*s.sts(r),
+		*s.service(r, rsrclabels),
+		*s.sts(r, rsrclabels),
 		resource.Object{
 			Lifecycle: resource.LifecycleReferred,
 			Obj: &corev1.Secret{
@@ -1029,8 +987,8 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 }
 
 // Observables - return selectors
-func (s *SQLProxySpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *SQLProxySpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
@@ -1047,17 +1005,17 @@ func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 }
 
 // ------------------------------ RedisSpec ---------------------------------------
-func (s *RedisSpec) service(r *AirflowCluster) *resource.Object {
-	return service(r, ValueAirflowComponentRedis, "",
+func (s *RedisSpec) service(r *AirflowCluster, labels map[string]string) *resource.Object {
+	return service(r, ValueAirflowComponentRedis, "", labels,
 		[]corev1.ServicePort{{Name: "redis", Port: 6379}})
 }
 
-func (s *RedisSpec) podDisruption(r *AirflowCluster) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentRedis, "", "100%")
+func (s *RedisSpec) podDisruption(r *AirflowCluster, labels map[string]string) *resource.Object {
+	return podDisruption(r, ValueAirflowComponentRedis, "", "100%", labels)
 }
 
-func (s *RedisSpec) secret(r *AirflowCluster) *resource.Object {
-	name, labels, _ := nameAndLabels(r, ValueAirflowComponentRedis, "", true)
+func (s *RedisSpec) secret(r *AirflowCluster, labels map[string]string) *resource.Object {
+	name := rsrcName(r.Name, ValueAirflowComponentRedis, "")
 	return &resource.Object{
 		ObjList:   &corev1.SecretList{},
 		Lifecycle: resource.LifecycleManaged,
@@ -1070,9 +1028,9 @@ func (s *RedisSpec) secret(r *AirflowCluster) *resource.Object {
 	}
 }
 
-func (s *RedisSpec) sts(r *AirflowCluster) *resource.Object {
-	redisSecret, _, _ := nameAndLabels(r, ValueAirflowComponentRedis, "", false)
-	ss := sts(r, ValueAirflowComponentRedis, "", true)
+func (s *RedisSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
+	redisSecret := rsrcName(r.Name, ValueAirflowComponentRedis, "")
+	ss := sts(r, ValueAirflowComponentRedis, "", true, labels)
 	volName := "redis-data"
 	if s.VolumeClaimTemplate != nil {
 		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.VolumeClaimTemplate}
@@ -1155,7 +1113,12 @@ func (s *RedisSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.secret(r), *s.service(r), *s.sts(r), *s.podDisruption(r))
+	resources.Add(
+		*s.secret(r, rsrclabels),
+		*s.service(r, rsrclabels),
+		*s.sts(r, rsrclabels),
+		*s.podDisruption(r, rsrclabels),
+	)
 	return resources, nil
 	//if s.VolumeClaimTemplate != nil {
 	//		rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
@@ -1163,8 +1126,8 @@ func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 }
 
 // Observables - return selectors
-func (s *RedisSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *RedisSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
@@ -1262,8 +1225,8 @@ func (s *DagSpec) container(volName string) (bool, corev1.Container) {
 	return init, container
 }
 
-func (s *SchedulerSpec) serviceaccount(r *AirflowCluster) *resource.Object {
-	name, labels, _ := nameAndLabels(r, ValueAirflowComponentScheduler, "", true)
+func (s *SchedulerSpec) serviceaccount(r *AirflowCluster, labels map[string]string) *resource.Object {
+	name := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
 	return &resource.Object{
 		Lifecycle: resource.LifecycleManaged,
 		ObjList:   &corev1.ServiceAccountList{},
@@ -1273,8 +1236,8 @@ func (s *SchedulerSpec) serviceaccount(r *AirflowCluster) *resource.Object {
 	}
 }
 
-func (s *SchedulerSpec) rb(r *AirflowCluster) *resource.Object {
-	name, labels, _ := nameAndLabels(r, ValueAirflowComponentScheduler, "", true)
+func (s *SchedulerSpec) rb(r *AirflowCluster, labels map[string]string) *resource.Object {
+	name := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
 	return &resource.Object{
 		Lifecycle: resource.LifecycleManaged,
 		ObjList:   &rbacv1.RoleBindingList{},
@@ -1288,9 +1251,9 @@ func (s *SchedulerSpec) rb(r *AirflowCluster) *resource.Object {
 	}
 }
 
-func (s *SchedulerSpec) sts(r *AirflowCluster) *resource.Object {
+func (s *SchedulerSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
 	volName := "dags-data"
-	ss := sts(r, ValueAirflowComponentScheduler, "", true)
+	ss := sts(r, ValueAirflowComponentScheduler, "", true, labels)
 	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
 		{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
@@ -1352,7 +1315,11 @@ func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.serviceaccount(r), *s.rb(r), *s.sts(r))
+	resources.Add(
+		*s.serviceaccount(r, rsrclabels),
+		*s.rb(r, rsrclabels),
+		*s.sts(r, rsrclabels),
+	)
 
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
@@ -1373,8 +1340,8 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 }
 
 // Observables - return selectors
-func (s *SchedulerSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *SchedulerSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
@@ -1391,8 +1358,8 @@ func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconc
 }
 
 // ------------------------------ Worker -
-func (s *WorkerSpec) sts(r *AirflowCluster) *resource.Object {
-	ss := sts(r, ValueAirflowComponentWorker, "", true)
+func (s *WorkerSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
+	ss := sts(r, ValueAirflowComponentWorker, "", true, labels)
 	volName := "dags-data"
 	ss.Spec.Replicas = &s.Replicas
 	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
@@ -1448,13 +1415,13 @@ func (s *WorkerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.sts(r))
+	resources.Add(*s.sts(r, rsrclabels))
 	return resources, nil
 }
 
 // Observables - return selectors
-func (s *WorkerSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *WorkerSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
@@ -1489,13 +1456,13 @@ func (s *FlowerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.sts(r))
+	resources.Add(*s.sts(r, rsrclabels))
 	return resources, nil
 }
 
 // Observables - return selectors
-func (s *FlowerSpec) Observables(rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(expected, rsrclabels)
+func (s *FlowerSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
 // Differs returns true if the resource needs to be updated
@@ -1511,8 +1478,8 @@ func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconcile
 	}
 }
 
-func (s *FlowerSpec) sts(r *AirflowCluster) *resource.Object {
-	ss := sts(r, ValueAirflowComponentFlower, "", true)
+func (s *FlowerSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
+	ss := sts(r, ValueAirflowComponentFlower, "", true, labels)
 	volName := "dags-data"
 	ss.Spec.Replicas = &s.Replicas
 	ss.Spec.Template.Spec.Volumes = []corev1.Volume{

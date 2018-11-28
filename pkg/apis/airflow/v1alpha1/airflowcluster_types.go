@@ -52,9 +52,11 @@ var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCeler
 // RedisSpec defines the attributes and desired state of Redis component
 type RedisSpec struct {
 	// Image defines the Redis Docker image name
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the Redis Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Flag when True generates RedisReplica CustomResource to be handled by Redis Operator
 	// If False, a StatefulSet with 1 replica is created
 	// +optional
@@ -83,9 +85,11 @@ func (s *RedisSpec) validate(fp *field.Path) field.ErrorList {
 // FlowerSpec defines the attributes to deploy Flower component
 type FlowerSpec struct {
 	// Image defines the Flower Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the Flower Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running Flower instances in a cluster
 	Replicas int32 `json:"replicas,omitempty"`
 	// Resources is the resource requests and limits for the pods.
@@ -102,16 +106,16 @@ func (s *FlowerSpec) validate(fp *field.Path) field.ErrorList {
 type SchedulerSpec struct {
 	// Image defines the Airflow custom server Docker image.
 	// +optional
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// Version defines the Airflow Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// DBName defines the Airflow Database to be used
 	// +optional
-	DBName string `json:"database"`
+	DBName string `json:"database,omitempty"`
 	// DBUser defines the Airflow Database user to be used
 	// +optional
-	DBUser string `json:"dbuser"`
+	DBUser string `json:"dbuser,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
@@ -123,10 +127,11 @@ func (s *SchedulerSpec) validate(fp *field.Path) field.ErrorList {
 // WorkerSpec defines the attributes and desired state of Airflow workers
 type WorkerSpec struct {
 	// Image defines the Airflow worker Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the Airflow worker Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// Replicas is the count of number of workers
 	Replicas int32 `json:"replicas,omitempty"`
 	// Resources is the resource requests and limits for the pods.
@@ -430,7 +435,7 @@ func (b *AirflowCluster) Components() []component.Component {
 	if b.Spec.Redis != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Redis,
-			Name:     "Redis",
+			Name:     ValueAirflowComponentRedis,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -438,7 +443,7 @@ func (b *AirflowCluster) Components() []component.Component {
 	if b.Spec.Flower != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Flower,
-			Name:     "Flower",
+			Name:     ValueAirflowComponentFlower,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -446,7 +451,7 @@ func (b *AirflowCluster) Components() []component.Component {
 	if b.Spec.Scheduler != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Scheduler,
-			Name:     "Scheduler",
+			Name:     ValueAirflowComponentScheduler,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -454,7 +459,7 @@ func (b *AirflowCluster) Components() []component.Component {
 	if b.Spec.UI != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.UI,
-			Name:     "UI",
+			Name:     ValueAirflowComponentUI,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -462,7 +467,7 @@ func (b *AirflowCluster) Components() []component.Component {
 	if b.Spec.Worker != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Worker,
-			Name:     "Worker",
+			Name:     ValueAirflowComponentWorker,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -489,6 +494,7 @@ func (b *AirflowCluster) NewRsrc() cr.Handle {
 // NewStatus - return a  resource status object
 func (b *AirflowCluster) NewStatus() interface{} {
 	s := b.Status.DeepCopy()
+	s.ComponentList = status.ComponentList{}
 	return s
 }
 

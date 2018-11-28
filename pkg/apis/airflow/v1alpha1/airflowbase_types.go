@@ -287,10 +287,13 @@ func validStorageProvider(provider string) bool {
 // AirflowUISpec defines the attributes to deploy Airflow UI component
 type AirflowUISpec struct {
 	// Image defines the AirflowUI Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the AirflowUI Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running Airflow UI instances in a cluster
+	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	// +optional
@@ -508,7 +511,7 @@ func (b *AirflowBase) Components() []component.Component {
 	if b.Spec.MySQL != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.MySQL,
-			Name:     "MySQL",
+			Name:     ValueAirflowComponentMySQL,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -516,7 +519,7 @@ func (b *AirflowBase) Components() []component.Component {
 	if b.Spec.Postgres != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Postgres,
-			Name:     "Postgres",
+			Name:     ValueAirflowComponentPostgres,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -524,7 +527,7 @@ func (b *AirflowBase) Components() []component.Component {
 	if b.Spec.Storage != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Storage,
-			Name:     "Storage",
+			Name:     ValueAirflowComponentNFS,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -532,7 +535,7 @@ func (b *AirflowBase) Components() []component.Component {
 	if b.Spec.SQLProxy != nil {
 		c = append(c, component.Component{
 			Handle:   b.Spec.SQLProxy,
-			Name:     "SQLProxy",
+			Name:     ValueAirflowComponentSQLProxy,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -559,6 +562,7 @@ func (b *AirflowBase) NewRsrc() cr.Handle {
 // NewStatus - return a  resource status object
 func (b *AirflowBase) NewStatus() interface{} {
 	s := b.Status.DeepCopy()
+	s.ComponentList = status.ComponentList{}
 	return s
 }
 

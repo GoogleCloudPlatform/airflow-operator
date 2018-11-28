@@ -290,7 +290,7 @@ func (r *AirflowCluster) addMySQLUserDBContainer(ss *appsv1.StatefulSet) {
 			Command: []string{"/bin/bash"},
 			//SET GLOBAL explicit_defaults_for_timestamp=ON;
 			Args: []string{"-c", `
-mysql -uroot -h$(SQL_HOST) -p$(SQL_ROOT_PASSWORD) << EOSQL 
+mysql -uroot -h$(SQL_HOST) -p$(SQL_ROOT_PASSWORD) << EOSQL
 CREATE DATABASE IF NOT EXISTS $(SQL_DB);
 USE $(SQL_DB);
 CREATE USER IF NOT EXISTS '$(SQL_USER)'@'%' IDENTIFIED BY '$(SQL_PASSWORD)';
@@ -1181,9 +1181,9 @@ func (s *GitSpec) container(volName string) (bool, corev1.Container) {
 	}
 	if s.CredSecretRef != nil {
 		env = append(env, []corev1.EnvVar{
-			{Name: "GIT_PASSWORD",
+			{Name: "GIT_SYNC_PASSWORD",
 				ValueFrom: envFromSecret(s.CredSecretRef.Name, "password")},
-			{Name: "GIT_USER", Value: s.User},
+			{Name: "GIT_SYNC_USERNAME", Value: s.User},
 		}...)
 	}
 	if s.Once {
@@ -1203,7 +1203,7 @@ func (s *GitSpec) container(volName string) (bool, corev1.Container) {
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      volName,
-				MountPath: "/git",
+				MountPath: "/tmp/git",
 			},
 		},
 	}

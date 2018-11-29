@@ -15,6 +15,7 @@ package v1alpha1
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	application "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"math/rand"
+	"sigs.k8s.io/kubesdk/pkg/component"
 	"sigs.k8s.io/kubesdk/pkg/finalizer"
 	"sigs.k8s.io/kubesdk/pkg/resource"
 	"strconv"
@@ -72,6 +74,8 @@ const (
 	afc             = "AIRFLOW__CORE__"
 	AirflowHome     = "/usr/local/airflow"
 	AirflowDagsBase = AirflowHome + "/dags/"
+
+	TemplatePath = "templates/"
 )
 
 var (
@@ -404,96 +408,42 @@ func podDisruption(r AirflowResource, component string, suffix string, minavail 
 
 // ------------------------------ MYSQL  ---------------------------------------
 
-func (s *MySQLSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentMySQL,
-		rsrcName(r.Name, ValueAirflowComponentSQL, ""), labels,
-		[]corev1.ServicePort{{Name: "mysql", Port: 3306}})
+type mysqlTmplValue struct {
+	Name        string
+	Namespace   string
+	SecretName  string
+	SvcName     string
+	Base        *AirflowBase
+	Labels      component.KVMap
+	Selector    component.KVMap
+	Ports       map[string]string
+	Secret      map[string]string
+	PDBMinAvail string
 }
 
-func (s *MySQLSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentMySQL, "", "100%", labels)
+func (s *MySQLSpec) secret(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"secret.yaml", v, &corev1.SecretList{})
 }
 
-func (s *MySQLSpec) secret(r *AirflowBase, labels map[string]string) *resource.Object {
-	name := rsrcName(r.getName(), ValueAirflowComponentSQL, "")
-	return &resource.Object{
-		Obj: &corev1.Secret{
-			ObjectMeta: r.getMeta(name, labels),
-			Data: map[string][]byte{
-				"password":     RandomAlphanumericString(16),
-				"rootpassword": RandomAlphanumericString(16),
-			},
-		},
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &corev1.SecretList{},
-	}
+func tmplsvc(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"svc.yaml", v, &corev1.ServiceList{})
 }
 
-func (s *MySQLSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
-	sqlSecret := rsrcName(r.getName(), ValueAirflowComponentSQL, "")
-	ss := sts(r, ValueAirflowComponentMySQL, "", true, labels)
-	ss.Spec.Replicas = &s.Replicas
-	volName := "mysql-data"
-	if s.VolumeClaimTemplate != nil {
-		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.VolumeClaimTemplate}
-		volName = s.VolumeClaimTemplate.Name
-	} else {
-		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func tmplpodDisruption(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"pdb.yaml", v, &policyv1.PodDisruptionBudgetList{})
+}
+
+func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"mysql-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.MySQL.Resources
+		if r.Base.Spec.MySQL.VolumeClaimTemplate != nil {
+			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.MySQL.VolumeClaimTemplate}
 		}
 	}
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			Name:  "mysql",
-			Image: s.Image + ":" + s.Version,
-			Env: []corev1.EnvVar{
-				{Name: "MYSQL_DATABASE", Value: "testdb"},
-				{Name: "MYSQL_USER", Value: "airflow"},
-				{Name: "MYSQL_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
-				{Name: "MYSQL_ROOT_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "rootpassword")},
-			},
-			//Args:      []string{"-c", fmt.Sprintf("exec mysql %s", optionsToString(s.Options, "--"))},
-			Args:      []string{"--explicit-defaults-for-timestamp=ON"},
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "mysql",
-					ContainerPort: 3306,
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/var/lib/mysql",
-				},
-			},
-			LivenessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"bash", "-c", "mysqladmin -p$MYSQL_ROOT_PASSWORD ping"},
-					},
-				},
-				InitialDelaySeconds: 30,
-				PeriodSeconds:       20,
-				TimeoutSeconds:      5,
-			},
-			ReadinessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"bash", "-c", "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e \"use testdb\""},
-					},
-				},
-				InitialDelaySeconds: 10,
-				PeriodSeconds:       5,
-				TimeoutSeconds:      2,
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // Mutate - mutate expected
@@ -514,17 +464,29 @@ func (s *MySQLSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	if !s.Operator {
-		resources.Add(
-			*s.secret(r, rsrclabels),
-			*s.service(r, rsrclabels),
-			*s.sts(r, rsrclabels),
-			*s.podDisruption(r, rsrclabels),
-		)
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentMySQL, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		SvcName:    rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		Base:       r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"mysql": "3306"},
+		Secret: map[string]string{
+			"password":     base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+			"rootpassword": base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+		},
+		PDBMinAvail: "100%",
 	}
-	//if s.VolumeClaimTemplate != nil {
-	//	rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
-	//}
+
+	for _, fn := range []resource.GetObjectFn{s.sts, tmplsvc, tmplpodDisruption, s.secret} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -836,11 +798,24 @@ func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	resources.Add(
-		*s.sts(r, rsrclabels),
-		*s.service(r, rsrclabels),
-		*s.podDisruption(r, rsrclabels),
-	)
+	var ngdata = mysqlTmplValue{
+		Name:        rsrcName(r.Name, ValueAirflowComponentNFS, ""),
+		Namespace:   r.Namespace,
+		SvcName:     rsrcName(r.Name, ValueAirflowComponentNFS, ""),
+		Base:        r,
+		Labels:      rsrclabels,
+		Selector:    rsrclabels,
+		Ports:       map[string]string{"nfs": "2049", "mountd": "20048", "rpcbind": "111"},
+		PDBMinAvail: "100%",
+	}
+
+	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -849,57 +824,17 @@ func (s *NFSStoreSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsr
 	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
-func (s *NFSStoreSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
-	ss := sts(r, ValueAirflowComponentNFS, "", true, labels)
-	ss.Spec.PodManagementPolicy = PodManagementPolicyParallel
-	volName := "nfs-data"
-	if s.Volume != nil {
-		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.Volume}
-		volName = s.Volume.Name
-	} else {
-		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func (s *NFSStoreSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"nfs-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Storage.Resources
+		if r.Base.Spec.MySQL.VolumeClaimTemplate != nil {
+			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Storage.Volume}
 		}
 	}
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			//imagePullPolicy: "Always"
-			//envFrom:
-			Name:      "nfs-server",
-			Image:     s.Image + ":" + s.Version,
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{Name: "nfs", ContainerPort: 2049},
-				{Name: "mountd", ContainerPort: 20048},
-				{Name: "rpcbind", ContainerPort: 111},
-			},
-			SecurityContext: &corev1.SecurityContext{},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/exports",
-				},
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
-}
-
-func (s *NFSStoreSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentNFS, "", "100%", labels)
-}
-
-func (s *NFSStoreSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentNFS, "", labels,
-		[]corev1.ServicePort{
-			{Name: "nfs", Port: 2049},
-			{Name: "mountd", Port: 20048},
-			{Name: "rpcbind", Port: 111},
-		})
+	return o, err
 }
 
 // Differs returns true if the resource needs to be updated

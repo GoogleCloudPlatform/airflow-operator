@@ -1,4 +1,4 @@
-// Copyright 2017 Google Inc. All Rights Reserved.
+// Copyright 2017 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,9 +20,11 @@ import (
 	"reflect"
 	"time"
 
-	pb "google.golang.org/genproto/googleapis/firestore/v1beta1"
-
 	"github.com/golang/protobuf/ptypes"
+	tspb "github.com/golang/protobuf/ptypes/timestamp"
+	pb "google.golang.org/genproto/googleapis/firestore/v1beta1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // A DocumentSnapshot contains document data and metadata.
@@ -37,20 +39,34 @@ type DocumentSnapshot struct {
 	CreateTime time.Time
 
 	// Read-only. The time at which the document was last changed. This value
-	// is initally set to CreateTime then increases monotonically with each
+	// is initially set to CreateTime then increases monotonically with each
 	// change to the document. It can also be compared to values from other
 	// documents and the read time of a query.
 	UpdateTime time.Time
 
+	// Read-only. The time at which the document was read.
+	ReadTime time.Time
+
 	c     *Client
 	proto *pb.Document
+}
+
+// Exists reports whether the DocumentSnapshot represents an existing document.
+// Even if Exists returns false, the Ref and ReadTime fields of the DocumentSnapshot
+// are valid.
+func (d *DocumentSnapshot) Exists() bool {
+	return d.proto != nil
 }
 
 // Data returns the DocumentSnapshot's fields as a map.
 // It is equivalent to
 //     var m map[string]interface{}
 //     d.DataTo(&m)
+// except that it returns nil if the document does not exist.
 func (d *DocumentSnapshot) Data() map[string]interface{} {
+	if !d.Exists() {
+		return nil
+	}
 	m, err := createMapFromValueMap(d.proto.Fields, d.c)
 	// Any error here is a bug in the client.
 	if err != nil {
@@ -73,7 +89,7 @@ func (d *DocumentSnapshot) Data() map[string]interface{} {
 //     Overflow is detected and results in an error.
 //   - Bytes is converted to []byte.
 //   - Timestamp converts to time.Time.
-//   - GeoPoint converts to latlng.LatLng, where latlng is the package
+//   - GeoPoint converts to *latlng.LatLng, where latlng is the package
 //     "google.golang.org/genproto/googleapis/type/latlng".
 //   - Arrays convert to []interface{}. When setting a struct field, the field
 //     may be a slice or array of any type and is populated recursively.
@@ -83,12 +99,20 @@ func (d *DocumentSnapshot) Data() map[string]interface{} {
 //   - Maps convert to map[string]interface{}. When setting a struct field,
 //     maps of key type string and any value type are permitted, and are populated
 //     recursively.
-//   - References are converted to DocumentRefs.
+//   - References are converted to *firestore.DocumentRefs.
 //
 // Field names given by struct field tags are observed, as described in
 // DocumentRef.Create.
+//
+// Only the fields actually present in the document are used to populate p. Other fields
+// of p are left unchanged.
+//
+// If the document does not exist, DataTo returns a NotFound error.
 func (d *DocumentSnapshot) DataTo(p interface{}) error {
-	return setFromProtoValue(p, &pb.Value{&pb.Value_MapValue{&pb.MapValue{d.proto.Fields}}}, d.c)
+	if !d.Exists() {
+		return status.Errorf(codes.NotFound, "document %s does not exist", d.Ref.Path)
+	}
+	return setFromProtoValue(p, &pb.Value{ValueType: &pb.Value_MapValue{&pb.MapValue{Fields: d.proto.Fields}}}, d.c)
 }
 
 // DataAt returns the data value denoted by path.
@@ -98,7 +122,12 @@ func (d *DocumentSnapshot) DataTo(p interface{}) error {
 // such a path.
 //
 // See DocumentSnapshot.DataTo for how Firestore values are converted to Go values.
+//
+// If the document does not exist, DataAt returns a NotFound error.
 func (d *DocumentSnapshot) DataAt(path string) (interface{}, error) {
+	if !d.Exists() {
+		return nil, status.Errorf(codes.NotFound, "document %s does not exist", d.Ref.Path)
+	}
 	fp, err := parseDotSeparatedString(path)
 	if err != nil {
 		return nil, err
@@ -107,7 +136,11 @@ func (d *DocumentSnapshot) DataAt(path string) (interface{}, error) {
 }
 
 // DataAtPath returns the data value denoted by the FieldPath fp.
+// If the document does not exist, DataAtPath returns a NotFound error.
 func (d *DocumentSnapshot) DataAtPath(fp FieldPath) (interface{}, error) {
+	if !d.Exists() {
+		return nil, status.Errorf(codes.NotFound, "document %s does not exist", d.Ref.Path)
+	}
 	v, err := valueAtPath(fp, d.proto.Fields)
 	if err != nil {
 		return nil, err
@@ -138,48 +171,46 @@ func valueAtPath(fp FieldPath, m map[string]*pb.Value) (*pb.Value, error) {
 
 // toProtoDocument converts a Go value to a Document proto.
 // Valid values are: map[string]T, struct, or pointer to a valid value.
-// It also returns a list of field paths for DocumentTransform (server timestamp).
-func toProtoDocument(x interface{}) (*pb.Document, []FieldPath, error) {
+// It also returns a list DocumentTransforms.
+func toProtoDocument(x interface{}) (*pb.Document, []*pb.DocumentTransform_FieldTransform, error) {
 	if x == nil {
 		return nil, nil, errors.New("firestore: nil document contents")
 	}
 	v := reflect.ValueOf(x)
-	pv, sawTransform, err := toProtoValue(v)
+	pv, _, err := toProtoValue(v)
 	if err != nil {
 		return nil, nil, err
 	}
-	var fieldPaths []FieldPath
-	if sawTransform {
-		fieldPaths, err = extractTransformPaths(v, nil)
-		if err != nil {
-			return nil, nil, err
-		}
+	var transforms []*pb.DocumentTransform_FieldTransform
+	transforms, err = extractTransforms(v, nil)
+	if err != nil {
+		return nil, nil, err
 	}
 	var fields map[string]*pb.Value
 	if pv != nil {
 		m := pv.GetMapValue()
 		if m == nil {
-			return nil, nil, fmt.Errorf("firestore: cannot covert value of type %T into a map", x)
+			return nil, nil, fmt.Errorf("firestore: cannot convert value of type %T into a map", x)
 		}
 		fields = m.Fields
 	}
-	return &pb.Document{Fields: fields}, fieldPaths, nil
+	return &pb.Document{Fields: fields}, transforms, nil
 }
 
-func extractTransformPaths(v reflect.Value, prefix FieldPath) ([]FieldPath, error) {
+func extractTransforms(v reflect.Value, prefix FieldPath) ([]*pb.DocumentTransform_FieldTransform, error) {
 	switch v.Kind() {
 	case reflect.Map:
-		return extractTransformPathsFromMap(v, prefix)
+		return extractTransformsFromMap(v, prefix)
 	case reflect.Struct:
-		return extractTransformPathsFromStruct(v, prefix)
+		return extractTransformsFromStruct(v, prefix)
 	case reflect.Ptr:
 		if v.IsNil() {
 			return nil, nil
 		}
-		return extractTransformPaths(v.Elem(), prefix)
+		return extractTransforms(v.Elem(), prefix)
 	case reflect.Interface:
 		if v.NumMethod() == 0 { // empty interface: recurse on its contents
-			return extractTransformPaths(v.Elem(), prefix)
+			return extractTransforms(v.Elem(), prefix)
 		}
 		return nil, nil
 	default:
@@ -187,27 +218,39 @@ func extractTransformPaths(v reflect.Value, prefix FieldPath) ([]FieldPath, erro
 	}
 }
 
-func extractTransformPathsFromMap(v reflect.Value, prefix FieldPath) ([]FieldPath, error) {
-	var paths []FieldPath
+func extractTransformsFromMap(v reflect.Value, prefix FieldPath) ([]*pb.DocumentTransform_FieldTransform, error) {
+	var transforms []*pb.DocumentTransform_FieldTransform
 	for _, k := range v.MapKeys() {
 		sk := k.Interface().(string) // assume keys are strings; checked in toProtoValue
 		path := prefix.with(sk)
 		mi := v.MapIndex(k)
 		if mi.Interface() == ServerTimestamp {
-			paths = append(paths, path)
-		} else {
-			ps, err := extractTransformPaths(mi, path)
+			transforms = append(transforms, serverTimestamp(path.toServiceFieldPath()))
+		} else if au, ok := mi.Interface().(arrayUnion); ok {
+			t, err := arrayUnionTransform(au, path)
 			if err != nil {
 				return nil, err
 			}
-			paths = append(paths, ps...)
+			transforms = append(transforms, t)
+		} else if ar, ok := mi.Interface().(arrayRemove); ok {
+			t, err := arrayRemoveTransform(ar, path)
+			if err != nil {
+				return nil, err
+			}
+			transforms = append(transforms, t)
+		} else {
+			ps, err := extractTransforms(mi, path)
+			if err != nil {
+				return nil, err
+			}
+			transforms = append(transforms, ps...)
 		}
 	}
-	return paths, nil
+	return transforms, nil
 }
 
-func extractTransformPathsFromStruct(v reflect.Value, prefix FieldPath) ([]FieldPath, error) {
-	var paths []FieldPath
+func extractTransformsFromStruct(v reflect.Value, prefix FieldPath) ([]*pb.DocumentTransform_FieldTransform, error) {
+	var transforms []*pb.DocumentTransform_FieldTransform
 	fields, err := fieldCache.Fields(v.Type())
 	if err != nil {
 		return nil, err
@@ -228,34 +271,52 @@ func extractTransformPathsFromStruct(v reflect.Value, prefix FieldPath) ([]Field
 					f.Name, v.Type())
 			}
 			if isZero {
-				paths = append(paths, path)
+				transforms = append(transforms, serverTimestamp(path.toServiceFieldPath()))
 			}
 		} else {
-			ps, err := extractTransformPaths(fv, path)
+			ps, err := extractTransforms(fv, path)
 			if err != nil {
 				return nil, err
 			}
-			paths = append(paths, ps...)
+			transforms = append(transforms, ps...)
 		}
 	}
-	return paths, nil
+	return transforms, nil
 }
 
-func newDocumentSnapshot(ref *DocumentRef, proto *pb.Document, c *Client) (*DocumentSnapshot, error) {
+func newDocumentSnapshot(ref *DocumentRef, proto *pb.Document, c *Client, readTime *tspb.Timestamp) (*DocumentSnapshot, error) {
 	d := &DocumentSnapshot{
 		Ref:   ref,
 		c:     c,
 		proto: proto,
 	}
-	ts, err := ptypes.Timestamp(proto.CreateTime)
-	if err != nil {
-		return nil, err
+	if proto != nil {
+		ts, err := ptypes.Timestamp(proto.CreateTime)
+		if err != nil {
+			return nil, err
+		}
+		d.CreateTime = ts
+		ts, err = ptypes.Timestamp(proto.UpdateTime)
+		if err != nil {
+			return nil, err
+		}
+		d.UpdateTime = ts
 	}
-	d.CreateTime = ts
-	ts, err = ptypes.Timestamp(proto.UpdateTime)
-	if err != nil {
-		return nil, err
+	if readTime != nil {
+		ts, err := ptypes.Timestamp(readTime)
+		if err != nil {
+			return nil, err
+		}
+		d.ReadTime = ts
 	}
-	d.UpdateTime = ts
 	return d, nil
+}
+
+func serverTimestamp(path string) *pb.DocumentTransform_FieldTransform {
+	return &pb.DocumentTransform_FieldTransform{
+		FieldPath: path,
+		TransformType: &pb.DocumentTransform_FieldTransform_SetToServerValue{
+			SetToServerValue: pb.DocumentTransform_FieldTransform_REQUEST_TIME,
+		},
+	}
 }

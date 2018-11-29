@@ -1,81 +1,40 @@
-#  Copyright 2018 The Kubernetes Authors.
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-
-# Packages required by users
-required = ["github.com/kubernetes-sig-testing/frameworks/integration",
-            "k8s.io/client-go/plugin/pkg/client/auth",
-            "github.com/spf13/pflag"]
+required = [
+    "github.com/emicklei/go-restful",
+    "github.com/onsi/ginkgo", # for test framework
+    "github.com/onsi/gomega", # for test matchers
+    "k8s.io/client-go/plugin/pkg/client/auth/gcp", # for development against gcp
+    "k8s.io/code-generator/cmd/client-gen", # for go generate
+    "k8s.io/code-generator/cmd/deepcopy-gen", # for go generate
+    "sigs.k8s.io/controller-tools/cmd/controller-gen", # for crd/rbac generation
+    "sigs.k8s.io/controller-runtime/pkg/client/config",
+    "sigs.k8s.io/controller-runtime/pkg/controller",
+    "sigs.k8s.io/controller-runtime/pkg/handler",
+    "sigs.k8s.io/controller-runtime/pkg/manager",
+    "sigs.k8s.io/controller-runtime/pkg/runtime/signals",
+    "sigs.k8s.io/controller-runtime/pkg/source",
+    "sigs.k8s.io/testing_frameworks/integration", # for integration testing
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1",
+    ]
 
 [prune]
   go-tests = true
 
 [[constraint]]
-  version = "master"
-  name = "github.com/kubernetes-sigs/kubebuilder"
+branch = "master"
+name = "github.com/kubernetes-sigs/application"
+
+# STANZAS BELOW ARE GENERATED AND MAY BE WRITTEN - DO NOT MODIFY BELOW THIS LINE.
 
 [[constraint]]
-  name = "github.com/golang/glog"
-  revision = "44145f04b68cf362d9c4df2182967c2275eaefed"
+  name="sigs.k8s.io/controller-runtime"
+  version="v0.1.1"
 
 [[constraint]]
-  name = "github.com/onsi/ginkgo"
-  version = "1.4.0"
+  name="sigs.k8s.io/controller-tools"
+  version="v0.1.1"
 
-[[constraint]]
-  name = "github.com/onsi/gomega"
-  version = "1.2.0"
-
-[[constraint]]
-  name = "github.com/pkg/errors"
-  revision = "a22138067af1c4942683050411a841ade67fe1eb"
-
-[[constraint]]
-  name = "github.com/spf13/cobra"
-  revision = "f62e98d28ab7ad31d707ba837a966378465c7b57"
-
-[[constraint]]
-  name = "github.com/spf13/pflag"
-  revision = "9ff6c6923cfffbcd502984b8e0c80539a94968b7"
-
-[[constraint]]
-  branch = "release-1.9"
-  name = "k8s.io/api"
-
-[[constraint]]
-  branch = "release-1.9"
-  name = "k8s.io/apiextensions-apiserver"
-
-[[constraint]]
-  branch = "release-1.9"
-  name = "k8s.io/apimachinery"
-
-[[constraint]]
-  branch = "release-1.9"
-  name = "k8s.io/apiserver"
-
-[[constraint]]
-  branch = "release-6.0"
-  name = "k8s.io/client-go"
-
-[[constraint]]
-  branch = "release-1.9"
-  name = "k8s.io/kube-aggregator"
-
+# For dependency below: Refer to issue https://github.com/golang/dep/issues/1799
 [[override]]
-  name = "github.com/Azure/go-autorest"
-  version = "v9.1.0"
-
-[[override]]
-  name = "github.com/emicklei/go-restful"
-  revision = "ff4f55a206334ef123e4f79bbf348980da81ca46"
+name = "gopkg.in/fsnotify.v1"
+source = "https://github.com/fsnotify/fsnotify.git"
+version="v1.4.7"

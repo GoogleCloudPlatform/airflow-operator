@@ -1,4 +1,4 @@
-// Copyright 2015 Google Inc. All Rights Reserved.
+// Copyright 2015 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
 package bigquery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
 	"cloud.google.com/go/internal/optional"
-
-	"golang.org/x/net/context"
+	"cloud.google.com/go/internal/trace"
 	bq "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/iterator"
 )
@@ -59,7 +59,7 @@ type DatasetMetadataToUpdate struct {
 	Description optional.String // The user-friendly description of this table.
 	Name        optional.String // The user-friendly name for this dataset.
 
-	// DefaultTableExpiration is the the default expiration time for new tables.
+	// DefaultTableExpiration is the default expiration time for new tables.
 	// If set to time.Duration(0), new tables never expire.
 	DefaultTableExpiration optional.Duration
 
@@ -85,12 +85,19 @@ func (c *Client) DatasetInProject(projectID, datasetID string) *Dataset {
 
 // Create creates a dataset in the BigQuery service. An error will be returned if the
 // dataset already exists. Pass in a DatasetMetadata value to configure the dataset.
-func (d *Dataset) Create(ctx context.Context, md *DatasetMetadata) error {
+func (d *Dataset) Create(ctx context.Context, md *DatasetMetadata) (err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/bigquery.Dataset.Create")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	ds, err := md.toBQ()
 	if err != nil {
 		return err
 	}
 	ds.DatasetReference = &bq.DatasetReference{DatasetId: d.DatasetID}
+	// Use Client.Location as a default.
+	if ds.Location == "" {
+		ds.Location = d.c.Location
+	}
 	call := d.c.bqs.Datasets.Insert(d.ProjectID, ds).Context(ctx)
 	setClientHeader(call.Header())
 	_, err = call.Do()
@@ -139,15 +146,30 @@ func accessListToBQ(a []*AccessEntry) ([]*bq.DatasetAccess, error) {
 	return q, nil
 }
 
-// Delete deletes the dataset.
-func (d *Dataset) Delete(ctx context.Context) error {
-	call := d.c.bqs.Datasets.Delete(d.ProjectID, d.DatasetID).Context(ctx)
+// Delete deletes the dataset.  Delete will fail if the dataset is not empty.
+func (d *Dataset) Delete(ctx context.Context) (err error) {
+	return d.deleteInternal(ctx, false)
+}
+
+// DeleteWithContents deletes the dataset, as well as contained resources.
+func (d *Dataset) DeleteWithContents(ctx context.Context) (err error) {
+	return d.deleteInternal(ctx, true)
+}
+
+func (d *Dataset) deleteInternal(ctx context.Context, deleteContents bool) (err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/bigquery.Dataset.Delete")
+	defer func() { trace.EndSpan(ctx, err) }()
+
+	call := d.c.bqs.Datasets.Delete(d.ProjectID, d.DatasetID).Context(ctx).DeleteContents(deleteContents)
 	setClientHeader(call.Header())
 	return call.Do()
 }
 
 // Metadata fetches the metadata for the dataset.
-func (d *Dataset) Metadata(ctx context.Context) (*DatasetMetadata, error) {
+func (d *Dataset) Metadata(ctx context.Context) (md *DatasetMetadata, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/bigquery.Dataset.Metadata")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	call := d.c.bqs.Datasets.Get(d.ProjectID, d.DatasetID).Context(ctx)
 	setClientHeader(call.Header())
 	var ds *bq.Dataset
@@ -186,7 +208,10 @@ func bqToDatasetMetadata(d *bq.Dataset) (*DatasetMetadata, error) {
 // To perform a read-modify-write that protects against intervening reads,
 // set the etag argument to the DatasetMetadata.ETag field from the read.
 // Pass the empty string for etag for a "blind write" that will always succeed.
-func (d *Dataset) Update(ctx context.Context, dm DatasetMetadataToUpdate, etag string) (*DatasetMetadata, error) {
+func (d *Dataset) Update(ctx context.Context, dm DatasetMetadataToUpdate, etag string) (md *DatasetMetadata, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/bigquery.Dataset.Update")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	ds, err := dm.toBQ()
 	if err != nil {
 		return nil, err
@@ -319,6 +344,9 @@ func (it *TableIterator) fetch(pageSize int, pageToken string) (string, error) {
 }
 
 func bqToTable(tr *bq.TableReference, c *Client) *Table {
+	if tr == nil {
+		return nil
+	}
 	return &Table{
 		ProjectID: tr.ProjectId,
 		DatasetID: tr.DatasetId,
@@ -375,6 +403,9 @@ type DatasetIterator struct {
 // PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
 func (it *DatasetIterator) PageInfo() *iterator.PageInfo { return it.pageInfo }
 
+// Next returns the next Dataset. Its second return value is iterator.Done if
+// there are no more results. Once Next returns Done, all subsequent calls will
+// return Done.
 func (it *DatasetIterator) Next() (*Dataset, error) {
 	if err := it.nextFunc(); err != nil {
 		return nil, err
@@ -432,8 +463,11 @@ type AccessEntry struct {
 type AccessRole string
 
 const (
-	OwnerRole  AccessRole = "OWNER"
+	// OwnerRole is the OWNER AccessRole.
+	OwnerRole AccessRole = "OWNER"
+	// ReaderRole is the READER AccessRole.
 	ReaderRole AccessRole = "READER"
+	// WriterRole is the WRITER AccessRole.
 	WriterRole AccessRole = "WRITER"
 )
 
@@ -441,19 +475,20 @@ const (
 type EntityType int
 
 const (
-	// A domain (e.g. "example.com")
+	// DomainEntity is a domain (e.g. "example.com").
 	DomainEntity EntityType = iota + 1
 
-	// Email address of a Google Group
+	// GroupEmailEntity is an email address of a Google Group.
 	GroupEmailEntity
 
-	// Email address of an individual user.
+	// UserEmailEntity is an email address of an individual user.
 	UserEmailEntity
 
-	// A special group: one of projectOwners, projectReaders, projectWriters or allAuthenticatedUsers.
+	// SpecialGroupEntity is a special group: one of projectOwners, projectReaders, projectWriters or
+	// allAuthenticatedUsers.
 	SpecialGroupEntity
 
-	// A BigQuery view.
+	// ViewEntity is a BigQuery view.
 	ViewEntity
 )
 

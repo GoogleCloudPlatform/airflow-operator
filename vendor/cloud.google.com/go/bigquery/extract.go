@@ -1,4 +1,4 @@
-// Copyright 2016 Google Inc. All Rights Reserved.
+// Copyright 2016 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,9 @@
 package bigquery
 
 import (
-	"golang.org/x/net/context"
+	"context"
+
+	"cloud.google.com/go/internal/trace"
 	bq "google.golang.org/api/bigquery/v2"
 )
 
@@ -93,13 +95,16 @@ func (t *Table) ExtractorTo(dst *GCSReference) *Extractor {
 }
 
 // Run initiates an extract job.
-func (e *Extractor) Run(ctx context.Context) (*Job, error) {
+func (e *Extractor) Run(ctx context.Context) (j *Job, err error) {
+	ctx = trace.StartSpan(ctx, "cloud.google.com/go/bigquery.Extractor.Run")
+	defer func() { trace.EndSpan(ctx, err) }()
+
 	return e.c.insertJob(ctx, e.newJob(), nil)
 }
 
 func (e *Extractor) newJob() *bq.Job {
 	return &bq.Job{
-		JobReference:  e.JobIDConfig.createJobRef(e.c.projectID),
+		JobReference:  e.JobIDConfig.createJobRef(e.c),
 		Configuration: e.ExtractConfig.toBQ(),
 	}
 }

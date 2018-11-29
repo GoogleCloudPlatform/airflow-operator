@@ -1,9 +1,12 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2018 Google LLC.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,7 +19,11 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/kubesdk/pkg/component"
+	cr "sigs.k8s.io/kubesdk/pkg/customresource"
+	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
 // defaults and constant strings
@@ -45,9 +52,11 @@ var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCeler
 // RedisSpec defines the attributes and desired state of Redis component
 type RedisSpec struct {
 	// Image defines the Redis Docker image name
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the Redis Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Flag when True generates RedisReplica CustomResource to be handled by Redis Operator
 	// If False, a StatefulSet with 1 replica is created
 	// +optional
@@ -76,9 +85,11 @@ func (s *RedisSpec) validate(fp *field.Path) field.ErrorList {
 // FlowerSpec defines the attributes to deploy Flower component
 type FlowerSpec struct {
 	// Image defines the Flower Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the Flower Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running Flower instances in a cluster
 	Replicas int32 `json:"replicas,omitempty"`
 	// Resources is the resource requests and limits for the pods.
@@ -95,16 +106,16 @@ func (s *FlowerSpec) validate(fp *field.Path) field.ErrorList {
 type SchedulerSpec struct {
 	// Image defines the Airflow custom server Docker image.
 	// +optional
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// Version defines the Airflow Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// DBName defines the Airflow Database to be used
 	// +optional
-	DBName string `json:"database"`
+	DBName string `json:"database,omitempty"`
 	// DBUser defines the Airflow Database user to be used
 	// +optional
-	DBUser string `json:"dbuser"`
+	DBUser string `json:"dbuser,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
@@ -116,10 +127,11 @@ func (s *SchedulerSpec) validate(fp *field.Path) field.ErrorList {
 // WorkerSpec defines the attributes and desired state of Airflow workers
 type WorkerSpec struct {
 	// Image defines the Airflow worker Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the Airflow worker Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// Replicas is the count of number of workers
 	Replicas int32 `json:"replicas,omitempty"`
 	// Resources is the resource requests and limits for the pods.
@@ -257,8 +269,6 @@ type AirflowClusterSpec struct {
 
 // SchedulerStatus defines the observed state of Airflow Scheduler
 type SchedulerStatus struct {
-	// Status is a string describing Scheduler status
-	Resources ComponentStatus `json:"resources,omitempty"`
 	// DagCount is a count of number of Dags observed
 	DagCount int32 `json:"dagcount,omitempty"`
 	// RunCount is a count of number of Dag Runs observed
@@ -267,28 +277,7 @@ type SchedulerStatus struct {
 
 // AirflowClusterStatus defines the observed state of AirflowCluster
 type AirflowClusterStatus struct {
-	// ObservedGeneration is the last generation of the AirflowCluster as
-	// observed by the controller.
-	ObservedGeneration int64 `json:"observedGeneration"`
-	// Redis is the status of the Redis component
-	// +optional
-	Redis ComponentStatus `json:"redis,omitempty"`
-	// Scheduler is the status of the Airflow Scheduler component
-	// +optional
-	Scheduler SchedulerStatus `json:"scheduler,omitempty"`
-	// Worker is the status of the Workers
-	// +optional
-	Worker ComponentStatus `json:"worker,omitempty"`
-	// UI is the status of the Airflow UI component
-	// +optional
-	UI ComponentStatus `json:"ui,omitempty"`
-	// Flower is the status of the Airflow UI component
-	// +optional
-	Flower ComponentStatus `json:"flower,omitempty"`
-	// LastError
-	LastError string `json:"lasterror,omitempty"`
-	// Status
-	Status string `json:"status,omitempty"`
+	status.Meta `json:",inline"`
 }
 
 // +genclient
@@ -379,6 +368,22 @@ func (b *AirflowCluster) ApplyDefaults() {
 	}
 }
 
+// UpdateRsrcStatus records status or error in status
+func (b *AirflowCluster) UpdateRsrcStatus(status interface{}, err error) bool {
+	esstatus := status.(*AirflowClusterStatus)
+	if status != nil {
+		b.Status = *esstatus
+	}
+
+	if err != nil {
+		b.Status.SetError("ErrorSeen", err.Error())
+	} else {
+		b.Status.ClearError()
+	}
+	// TODO use err
+	return true
+}
+
 // Validate the AirflowCluster
 func (b *AirflowCluster) Validate() error {
 	errs := field.ErrorList{}
@@ -429,26 +434,73 @@ func (b *AirflowCluster) Validate() error {
 	return errs.ToAggregate()
 }
 
-// Components get the enabled component interface for the AirflowBase
-func (b *AirflowCluster) Components() map[string]ComponentHandle {
-	var c = map[string]ComponentHandle{}
-
+// Components returns components for this resource
+func (b *AirflowCluster) Components() []component.Component {
+	c := []component.Component{}
 	if b.Spec.Redis != nil {
-		c["Redis"] = b.Spec.Redis
+		c = append(c, component.Component{
+			Handle:   b.Spec.Redis,
+			Name:     ValueAirflowComponentRedis,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.Flower != nil {
-		c["Flower"] = b.Spec.Flower
+		c = append(c, component.Component{
+			Handle:   b.Spec.Flower,
+			Name:     ValueAirflowComponentFlower,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.Scheduler != nil {
-		c["Scheduler"] = b.Spec.Scheduler
+		c = append(c, component.Component{
+			Handle:   b.Spec.Scheduler,
+			Name:     ValueAirflowComponentScheduler,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.UI != nil {
-		c["UI"] = b.Spec.UI
+		c = append(c, component.Component{
+			Handle:   b.Spec.UI,
+			Name:     ValueAirflowComponentUI,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
-	if b.Spec.Worker != nil && b.Spec.Executor == ExecutorCelery {
-		c["Worker"] = b.Spec.Worker
+	if b.Spec.Worker != nil {
+		c = append(c, component.Component{
+			Handle:   b.Spec.Worker,
+			Name:     ValueAirflowComponentWorker,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	return c
+}
+
+// OwnerRef returns owner ref object with the component's resource as owner
+func (b *AirflowCluster) OwnerRef() []metav1.OwnerReference {
+	return []metav1.OwnerReference{
+		*metav1.NewControllerRef(b, schema.GroupVersionKind{
+			Group:   SchemeGroupVersion.Group,
+			Version: SchemeGroupVersion.Version,
+			Kind:    "AirflowCluster",
+		}),
+	}
+}
+
+// NewRsrc - return a new resource object
+func (b *AirflowCluster) NewRsrc() cr.Handle {
+	return &AirflowCluster{}
+}
+
+// NewStatus - return a  resource status object
+func (b *AirflowCluster) NewStatus() interface{} {
+	s := b.Status.DeepCopy()
+	s.ComponentList = status.ComponentList{}
+	return s
 }
 
 // StatusDiffers returns True if there is a change in status
@@ -478,4 +530,17 @@ func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *A
 	c.Spec.AirflowBaseRef = &corev1.LocalObjectReference{Name: base}
 	c.ApplyDefaults()
 	return &c
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// AirflowClusterList contains a list of AirflowCluster
+type AirflowClusterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []AirflowCluster `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&AirflowCluster{}, &AirflowClusterList{})
 }

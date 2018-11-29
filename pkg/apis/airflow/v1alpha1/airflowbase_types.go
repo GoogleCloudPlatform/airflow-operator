@@ -1,9 +1,12 @@
 /*
-Copyright 2018 Google LLC
+Copyright 2018 Google LLC.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,10 +17,13 @@ limitations under the License.
 package v1alpha1
 
 import (
-	resources "k8s.io/airflow-operator/pkg/controller/resources"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/kubesdk/pkg/component"
+	cr "sigs.k8s.io/kubesdk/pkg/customresource"
+	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
 // defaults and constant strings
@@ -65,151 +71,7 @@ type AirflowBase struct {
 
 // AirflowBaseStatus defines the observed state of AirflowBase
 type AirflowBaseStatus struct {
-	// ObservedGeneration is the last generation of the AirflowBase as observed
-	// by the controller.
-	ObservedGeneration int64 `json:"observedGeneration"`
-	// MySQL is the status of the MySQL component
-	// +optional
-	MySQL ComponentStatus `json:"mysql,omitempty"`
-	// Postgres is the status of the Postgres component
-	// +optional
-	Postgres ComponentStatus `json:"postgres,omitempty"`
-	// UI is the status of the Airflow UI component
-	// +optional
-	UI ComponentStatus `json:"ui,omitempty"`
-	// Storage is the status of the NFS component
-	// +optional
-	Storage ComponentStatus `json:"storage,omitempty"`
-	// SQLProxy is the status of the SQLProxy component
-	// +optional
-	SQLProxy ComponentStatus `json:"sqlproxy,omitempty"`
-	// LastError
-	LastError string `json:"lasterror,omitempty"`
-	// Status to rsrc
-	Status string `json:"status,omitempty"`
-}
-
-// StsStatus is a generic status holder for stateful-set
-type StsStatus struct {
-	// Link to sts
-	Link string `json:"link,omitempty"`
-	// Name of sts
-	Name string `json:"name,omitempty"`
-	// Status to rsrc
-	Status string `json:"status,omitempty"`
-	// Replicas defines the no of MySQL instances desired
-	Replicas int32 `json:"replicas"`
-	// ReadyReplicas defines the no of MySQL instances that are ready
-	ReadyReplicas int32 `json:"readycount"`
-	// CurrentReplicas defines the no of MySQL instances that are created
-	CurrentReplicas int32 `json:"currentcount"`
-}
-
-func (s *StsStatus) update(rsrc *resources.StatefulSet) {
-	s.Link = rsrc.GetSelfLink()
-	s.Name = rsrc.Name
-	s.Replicas = rsrc.Status.Replicas
-	s.ReadyReplicas = rsrc.Status.ReadyReplicas
-	s.CurrentReplicas = rsrc.Status.CurrentReplicas
-	if rsrc.Status.ReadyReplicas == *rsrc.Spec.Replicas && rsrc.Status.CurrentReplicas == *rsrc.Spec.Replicas {
-		s.Status = StatusReady
-	} else {
-		s.Status = StatusInProgress
-	}
-}
-
-// SvcStatus is a generic status holder for service
-type SvcStatus struct {
-	// Link to rsrc
-	Link string `json:"link,omitempty"`
-	// service name
-	Name string `json:"name,omitempty"`
-	// Status to rsrc
-	Status string `json:"status,omitempty"`
-}
-
-func (s *SvcStatus) update(rsrc *resources.Service) {
-	s.Link = rsrc.GetSelfLink()
-	s.Name = rsrc.Name
-	s.Status = StatusReady
-	//if len(rsrc.Status.LoadBalancer.Ingress) > 0 {
-	//	s.Status = StatusReady
-	//} else {
-	//	s.Status = StatusInProgress
-	//}
-}
-
-// PdbStatus is a generic status holder for pdb
-type PdbStatus struct {
-	// Link to rsrc
-	Link string `json:"link,omitempty"`
-	// Name of pdb
-	Name string `json:"name,omitempty"`
-	// Status to rsrc
-	Status string `json:"status,omitempty"`
-	// currentHealthy
-	CurrentHealthy int32 `json:"currenthealthy"`
-	// desiredHealthy
-	DesiredHealthy int32 `json:"desiredhealthy"`
-}
-
-func (s *PdbStatus) update(rsrc *resources.PodDisruptionBudget) {
-	s.Link = rsrc.GetSelfLink()
-	s.Name = rsrc.Name
-	s.CurrentHealthy = rsrc.Status.CurrentHealthy
-	s.DesiredHealthy = rsrc.Status.DesiredHealthy
-	if s.CurrentHealthy >= s.DesiredHealthy {
-		s.Status = StatusReady
-	} else {
-		s.Status = StatusInProgress
-	}
-}
-
-// ComponentStatus is a generic status holder for components
-type ComponentStatus struct {
-	// StatefulSet status
-	STS []StsStatus `json:"sts,omitempty"`
-	// Service status
-	SVC []SvcStatus `json:"svc,omitempty"`
-	// PDB status
-	PDB []PdbStatus `json:"pdb,omitempty"`
-	// LastError
-	LastError string `json:"lasterror,omitempty"`
-	// Status
-	Status string `json:"status,omitempty"`
-}
-
-func (s *ComponentStatus) update(rsrcs []ResourceInfo, err error) {
-	s.Status = StatusReady
-	for _, r := range rsrcs {
-		switch r.Obj.(type) {
-		case *resources.Service:
-			status := SvcStatus{}
-			status.update(r.Obj.(*resources.Service))
-			if status.Status != StatusReady {
-				s.Status = StatusInProgress
-			}
-			s.SVC = append(s.SVC, status)
-		case *resources.StatefulSet:
-			status := StsStatus{}
-			status.update(r.Obj.(*resources.StatefulSet))
-			if status.Status != StatusReady {
-				s.Status = StatusInProgress
-			}
-			s.STS = append(s.STS, status)
-		case *resources.PodDisruptionBudget:
-			status := PdbStatus{}
-			status.update(r.Obj.(*resources.PodDisruptionBudget))
-			if status.Status != StatusReady {
-				s.Status = StatusInProgress
-			}
-			s.PDB = append(s.PDB, status)
-		}
-	}
-
-	if err != nil {
-		s.LastError = err.Error()
-	}
+	status.Meta `json:",inline"`
 }
 
 // AirflowBaseSpec defines the desired state of AirflowBase
@@ -254,10 +116,10 @@ func (s *AirflowBaseSpec) validate(fp *field.Path) field.ErrorList {
 type PostgresSpec struct {
 	// Image defines the Postgres Docker image name
 	// +optional
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// Version defines the Postgres Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running Postgres instances in a cluster
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
@@ -292,10 +154,10 @@ func (s *PostgresSpec) validate(fp *field.Path) field.ErrorList {
 type MySQLSpec struct {
 	// Image defines the MySQL Docker image name
 	// +optional
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// Version defines the MySQL Docker image version
 	// +optional
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running MySQL instances in a cluster
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
@@ -425,10 +287,13 @@ func validStorageProvider(provider string) bool {
 // AirflowUISpec defines the attributes to deploy Airflow UI component
 type AirflowUISpec struct {
 	// Image defines the AirflowUI Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the AirflowUI Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Replicas defines the number of running Airflow UI instances in a cluster
+	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	// +optional
@@ -444,9 +309,11 @@ func (s *AirflowUISpec) validate(fp *field.Path) field.ErrorList {
 // NFSStoreSpec defines the attributes to deploy Airflow Storage component
 type NFSStoreSpec struct {
 	// Image defines the NFS Docker image.
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the NFS Server Docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -596,6 +463,22 @@ func (b *AirflowBase) ApplyDefaults() {
 	}
 }
 
+// UpdateRsrcStatus records status or error in status
+func (b *AirflowBase) UpdateRsrcStatus(status interface{}, err error) bool {
+	esstatus := status.(*AirflowBaseStatus)
+	if status != nil {
+		b.Status = *esstatus
+	}
+
+	if err != nil {
+		b.Status.SetError("ErrorSeen", err.Error())
+	} else {
+		b.Status.ClearError()
+	}
+	// TODO use err
+	return true
+}
+
 // Validate the AirflowBase
 func (b *AirflowBase) Validate() error {
 	errs := field.ErrorList{}
@@ -627,23 +510,65 @@ func (b *AirflowBase) Validate() error {
 	return errs.ToAggregate()
 }
 
-// Components get the enabled component interface for the AirflowBase
-func (b *AirflowBase) Components() map[string]ComponentHandle {
-	var c = map[string]ComponentHandle{}
-
+// Components returns components for this resource
+func (b *AirflowBase) Components() []component.Component {
+	c := []component.Component{}
 	if b.Spec.MySQL != nil {
-		c["MySQL"] = b.Spec.MySQL
+		c = append(c, component.Component{
+			Handle:   b.Spec.MySQL,
+			Name:     ValueAirflowComponentMySQL,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.Postgres != nil {
-		c["Postgres"] = b.Spec.Postgres
+		c = append(c, component.Component{
+			Handle:   b.Spec.Postgres,
+			Name:     ValueAirflowComponentPostgres,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.Storage != nil {
-		c["Storage"] = b.Spec.Storage
+		c = append(c, component.Component{
+			Handle:   b.Spec.Storage,
+			Name:     ValueAirflowComponentNFS,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	if b.Spec.SQLProxy != nil {
-		c["SQLProxy"] = b.Spec.SQLProxy
+		c = append(c, component.Component{
+			Handle:   b.Spec.SQLProxy,
+			Name:     ValueAirflowComponentSQLProxy,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
 	}
 	return c
+}
+
+// OwnerRef returns owner ref object with the component's resource as owner
+func (b *AirflowBase) OwnerRef() []metav1.OwnerReference {
+	return []metav1.OwnerReference{
+		*metav1.NewControllerRef(b, schema.GroupVersionKind{
+			Group:   SchemeGroupVersion.Group,
+			Version: SchemeGroupVersion.Version,
+			Kind:    "AirflowBase",
+		}),
+	}
+}
+
+// NewRsrc - return a new resource object
+func (b *AirflowBase) NewRsrc() cr.Handle {
+	return &AirflowBase{}
+}
+
+// NewStatus - return a  resource status object
+func (b *AirflowBase) NewStatus() interface{} {
+	s := b.Status.DeepCopy()
+	s.ComponentList = status.ComponentList{}
+	return s
 }
 
 // StatusDiffers returns True if there is a change in status
@@ -678,4 +603,17 @@ func NewAirflowBase(name, namespace string, database string, storage bool) *Airf
 	}
 	b.ApplyDefaults()
 	return &b
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// AirflowBaseList contains a list of AirflowBase
+type AirflowBaseList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []AirflowBase `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&AirflowBase{}, &AirflowBaseList{})
 }

@@ -92,7 +92,7 @@ func (m *Meta) UpdateStatus(rsrcs []metav1.Object, err error) {
 		m.NotReady("ComponentsNotReady", "some components not ready")
 	}
 	if err != nil {
-		m.SetCondition(ConditionError, ConditionFalse, "ErrorSeen", err.Error())
+		m.SetCondition(ConditionError, ConditionTrue, "ErrorSeen", err.Error())
 	}
 }
 
@@ -187,6 +187,16 @@ func (m *Meta) Ready(reason, message string) {
 // NotReady - shortcut to set ready contition to false
 func (m *Meta) NotReady(reason, message string) {
 	m.SetCondition(ConditionReady, ConditionFalse, reason, message)
+}
+
+// SetError - shortcut to set error condition
+func (m *Meta) SetError(reason, message string) {
+	m.SetCondition(ConditionError, ConditionTrue, reason, message)
+}
+
+// ClearError - shortcut to set error condition
+func (m *Meta) ClearError() {
+	m.SetCondition(ConditionError, ConditionFalse, "NoError", "No error seen")
 }
 
 // Settled - shortcut to set Settled contition to true

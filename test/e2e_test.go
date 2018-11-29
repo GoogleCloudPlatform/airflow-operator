@@ -15,9 +15,11 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"k8s.io/airflow-operator/pkg/apis"
 	airflowv1alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,16 +27,17 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/kubesdk/pkg/component"
+	"sync"
 	//need blank import
-	typedairflow "k8s.io/airflow-operator/pkg/client/clientset/versioned/typed/airflow/v1alpha1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	"log"
 	"os"
-	"path"
 	"testing"
 	"time"
 )
@@ -45,6 +48,8 @@ const (
 	pollinterval           = 1 * time.Second
 	ControllerImageEnvName = "CONTROLLER_IMAGE"
 )
+
+var k8sClient client.Client
 
 func operatorLabels() map[string]string {
 	return map[string]string{
@@ -139,25 +144,22 @@ func airflowCluster(test, base, executor string, dags *airflowv1alpha1.DagSpec) 
 	return ac
 }
 
-func setToListSelector(set map[string]string) metav1.ListOptions {
-	return metav1.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set(set)).String()}
-}
-
-func waitAirflowCluster(k8sclient *kubernetes.Clientset, aclient *typedairflow.AirflowV1alpha1Client, testname, executor string) {
-	waitForSecret(k8sclient, testname, airflowv1alpha1.ValueAirflowComponentUI)
-	waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentScheduler)
-	waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentUI)
+func waitAirflowCluster(ac *airflowv1alpha1.AirflowCluster) {
+	testname := ac.GetName()
+	executor := ac.Spec.Executor
+	waitForSecret(ac, testname, airflowv1alpha1.ValueAirflowComponentUI)
+	waitSts(ac, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentScheduler)
+	waitSts(ac, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentUI)
 	if executor == airflowv1alpha1.ExecutorCelery {
-		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentWorker)
-		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentRedis)
+		waitSts(ac, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentWorker)
+		waitSts(ac, testname, airflowv1alpha1.ValueAirflowCRCluster, airflowv1alpha1.ValueAirflowComponentRedis)
 	}
 
 	var acs *airflowv1alpha1.AirflowClusterList
 	var err error
-	acclient := aclient.AirflowClusters(namespace)
-	listop := metav1.ListOptions{LabelSelector: labels.Set(map[string]string{"test": testname}).AsSelector().String()}
+	listop := client.MatchingLabels(labels.Set(map[string]string{"test": testname}))
 	err = wait.PollImmediate(pollinterval, 2*time.Minute, func() (bool, error) {
-		acs, err = acclient.List(listop)
+		err = k8sClient.List(context.TODO(), listop, acs)
 		if err != nil {
 			return false, fmt.Errorf("failed to list airflowcluster: %s, %v", testname, err)
 		}
@@ -165,36 +167,39 @@ func waitAirflowCluster(k8sclient *kubernetes.Clientset, aclient *typedairflow.A
 	})
 	Expect(err).NotTo(HaveOccurred(), "error waiting for airflowcluster sts: %s, %v", testname, err)
 
-	ac := &acs.Items[0]
+	listedac := &acs.Items[0]
 	err = wait.PollImmediate(pollinterval, 3*time.Minute, func() (bool, error) {
-		ac, err = acclient.Get(ac.Name, metav1.GetOptions{})
+		err = k8sClient.Get(context.TODO(),
+			types.NamespacedName{Name: listedac.Name, Namespace: listedac.Namespace},
+			listedac)
 		if err != nil {
 			return false, fmt.Errorf("failed to get airflowcluster: %s, %v", testname, err)
 		}
-		return ac.Status.Status == airflowv1alpha1.StatusReady, nil
+		return listedac.Status.IsReady(), nil
 	})
 	Expect(err).NotTo(HaveOccurred(), "error waiting for airfloewcluster to be ready: %s, %v", testname, err)
 
 	return
 }
 
-func waitAirflowBase(k8sclient *kubernetes.Clientset, aclient *typedairflow.AirflowV1alpha1Client, testname string, database string) {
+func waitAirflowBase(ab *airflowv1alpha1.AirflowBase, database string) {
+	testname := ab.GetName()
+
 	if database == airflowv1alpha1.DatabaseMySQL {
-		waitForSecret(k8sclient, testname, airflowv1alpha1.ValueAirflowComponentSQL)
-		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentMySQL)
+		waitForSecret(ab, testname, airflowv1alpha1.ValueAirflowComponentSQL)
+		waitSts(ab, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentMySQL)
 	} else if database == airflowv1alpha1.DatabasePostgres {
-		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentPostgres)
+		waitSts(ab, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentPostgres)
 	} else {
-		waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentSQLProxy)
+		waitSts(ab, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentSQLProxy)
 	}
-	waitSts(k8sclient, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentNFS)
+	waitSts(ab, testname, airflowv1alpha1.ValueAirflowCRBase, airflowv1alpha1.ValueAirflowComponentNFS)
 
 	var airflowbases *airflowv1alpha1.AirflowBaseList
 	var err error
-	abclient := aclient.AirflowBases(namespace)
-	listop := metav1.ListOptions{LabelSelector: labels.Set(map[string]string{"test": testname}).AsSelector().String()}
+	listop := client.MatchingLabels(labels.Set(map[string]string{"test": testname}))
 	err = wait.PollImmediate(pollinterval, 2*time.Minute, func() (bool, error) {
-		airflowbases, err = abclient.List(listop)
+		err = k8sClient.List(context.TODO(), listop, airflowbases)
 		if err != nil {
 			return false, fmt.Errorf("failed to list airflowbase: %s, %v", testname, err)
 		}
@@ -202,63 +207,65 @@ func waitAirflowBase(k8sclient *kubernetes.Clientset, aclient *typedairflow.Airf
 	})
 	Expect(err).NotTo(HaveOccurred(), "error waiting for airflowbase sts: %s, %v", testname, err)
 
-	ab := &airflowbases.Items[0]
+	listedab := &airflowbases.Items[0]
 	err = wait.PollImmediate(pollinterval, 3*time.Minute, func() (bool, error) {
-		ab, err = abclient.Get(ab.Name, metav1.GetOptions{})
+		err = k8sClient.Get(context.TODO(),
+			types.NamespacedName{Name: listedab.Name, Namespace: listedab.Namespace},
+			listedab)
 		if err != nil {
 			return false, fmt.Errorf("failed to get airflowbase: %s, %v", testname, err)
 		}
-		return ab.Status.Status == airflowv1alpha1.StatusReady, nil
+		return listedab.Status.IsReady(), nil
 	})
 	Expect(err).NotTo(HaveOccurred(), "error waiting for airfloewbase to be ready: %s, %v", testname, err)
 
 	return
 }
 
-func waitSts(client *kubernetes.Clientset, testname, rsrc, component string) {
+func waitSts(obj metav1.Object, testname, rsrc, cname string) {
 	var stss *appsv1.StatefulSetList
 	var err error
-	stsClient := client.AppsV1().StatefulSets(namespace)
-	selector := airflowv1alpha1.RsrcLabels(rsrc, testname, component)
-	listop := metav1.ListOptions{LabelSelector: labels.Set(selector).AsSelector().String()}
+	selector := component.Labels(obj, cname)
+	listop := client.MatchingLabels(labels.Set(selector))
 	err = wait.PollImmediate(pollinterval, 2*time.Minute, func() (bool, error) {
-		stss, err = stsClient.List(listop)
+		err = k8sClient.List(context.TODO(), listop, stss)
 		if err != nil {
-			return false, fmt.Errorf("failed to list sts: %s, %v", component, err)
+			return false, fmt.Errorf("failed to list sts: %s, %v", cname, err)
 		}
 		return len(stss.Items) == 1, nil
 	})
-	Expect(err).NotTo(HaveOccurred(), "error waiting for list sts: %s, %v", component, err)
+	Expect(err).NotTo(HaveOccurred(), "error waiting for list sts: %s, %v", cname, err)
 
 	sts := &stss.Items[0]
 	err = wait.PollImmediate(pollinterval, 2*time.Minute, func() (bool, error) {
-		sts, err = stsClient.Get(sts.Name, metav1.GetOptions{})
+		err = k8sClient.Get(context.TODO(),
+			types.NamespacedName{Name: sts.Name, Namespace: sts.Namespace},
+			sts)
 		if err != nil {
-			return false, fmt.Errorf("failed to get sts: %s, %v", component, err)
+			fmt.Printf("error getting sts (ns: %s) %s\n", sts.Namespace, err.Error())
+			return false, fmt.Errorf("failed to get sts: %s, %v", cname, err)
 		}
 		return sts.Status.ReadyReplicas == *sts.Spec.Replicas && sts.Status.CurrentReplicas == *sts.Spec.Replicas, nil
 	})
-	Expect(err).NotTo(HaveOccurred(), "error waiting for sts to be ready: %s, %v", component, err)
+	Expect(err).NotTo(HaveOccurred(), "error waiting for sts to be ready: %s, %v", cname, err)
 
 	return
 }
 
-func rsrcName(name, component string) string {
-	return name + "-" + component
-}
-
-func waitForSecret(client *kubernetes.Clientset, name, component string) {
+func waitForSecret(obj metav1.Object, name, cname string) {
 	var err error
-	secretClient := client.CoreV1().Secrets(namespace)
-
+	var secret = corev1.Secret{}
 	err = wait.PollImmediate(pollinterval, 1*time.Minute, func() (bool, error) {
-		_, err = secretClient.Get(rsrcName(name, component), metav1.GetOptions{})
+		err = k8sClient.Get(context.TODO(),
+			types.NamespacedName{Name: name + "-" + cname, Namespace: namespace},
+			&secret)
 		if err != nil {
+			fmt.Printf("error getting secret (ns: %s) %s\n", namespace, err.Error())
 			return false, nil
 		}
 		return true, nil
 	})
-	Expect(err).NotTo(HaveOccurred(), "error waiting for secret: %s, %v", component, err)
+	Expect(err).NotTo(HaveOccurred(), "error waiting for secret: %s, %v", cname, err)
 
 	return
 }
@@ -277,20 +284,28 @@ func TestE2e(t *testing.T) {
 //  It
 //   Expect
 
-func clientConfig() *rest.Config {
-	cc, err := clientcmd.BuildConfigFromFlags("", path.Join(os.Getenv("HOME"), ".kube/config"))
+func InitClient() {
+	apis.AddToScheme(scheme.Scheme)
+	cfg, err := config.GetConfig()
 	if err != nil {
-		log.Fatal("Unable to get client configuration", err)
+		os.Exit(1)
 	}
-	return cc
-}
+	mgr, err := manager.New(cfg, manager.Options{})
+	Expect(err).NotTo(HaveOccurred())
+	k8sClient = mgr.GetClient()
+	stop := make(chan struct{})
+	wg := &sync.WaitGroup{}
 
-func k8sClientSet() *kubernetes.Clientset {
-	client, err := kubernetes.NewForConfig(clientConfig())
-	if err != nil {
-		log.Fatal("Unable to construct kubernetes client", err)
-	}
-	return client
+	go func() {
+		wg.Add(1)
+		Expect(mgr.Start(stop)).NotTo(HaveOccurred())
+		wg.Done()
+	}()
+
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
 }
 
 func getDeleteOptions() *metav1.DeleteOptions {
@@ -302,53 +317,44 @@ func getDeleteOptions() *metav1.DeleteOptions {
 	}
 }
 
-func getOperatorClientset() *typedairflow.AirflowV1alpha1Client {
-	client, err := typedairflow.NewForConfig(clientConfig())
-	if err != nil {
-		log.Fatal("Unable to construct airflow operator client", err)
-	}
-	return client
-}
-
 var _ = BeforeSuite(func() {
-	if true {
+	InitClient()
+	if false {
 		By("Creating airflow controller statefulset")
-		_, err := k8sClientSet().CoreV1().Namespaces().Create(operatorNamespace())
+		err := k8sClient.Create(context.TODO(), operatorNamespace())
 		Expect(err).NotTo(HaveOccurred(), "failed to create test namespace: %v", err)
-		_, err = k8sClientSet().RbacV1().ClusterRoleBindings().Create(operatorCRB())
+		err = k8sClient.Create(context.TODO(), operatorCRB())
 		Expect(err).NotTo(HaveOccurred(), "failed to create operator CRB: %v", err)
-		_, err = k8sClientSet().AppsV1().StatefulSets(namespace).Create(operatorSts())
+		err = k8sClient.Create(context.TODO(), operatorSts())
 		Expect(err).NotTo(HaveOccurred(), "failed to create operator statefulset %q: %v", operatorsts, err)
 	}
 })
 
 var _ = AfterSuite(func() {
-	if true {
+	if false {
 		By("Deleting airflow controller statefulset")
-		err := k8sClientSet().AppsV1().StatefulSets(namespace).Delete(operatorsts, getDeleteOptions())
+		err := k8sClient.Delete(context.TODO(), operatorSts())
 		Expect(err).NotTo(HaveOccurred(), "failed to delete operator statefulset %q: %v", operatorsts, err)
-		err = k8sClientSet().RbacV1().ClusterRoleBindings().Delete(namespace+"crb", getDeleteOptions())
+		err = k8sClient.Delete(context.TODO(), operatorCRB())
 		Expect(err).NotTo(HaveOccurred(), "failed to delete operator CRB: %v", err)
-		err = k8sClientSet().CoreV1().Namespaces().Delete(namespace, getDeleteOptions())
+		err = k8sClient.Delete(context.TODO(), operatorSts())
 		Expect(err).NotTo(HaveOccurred(), "failed to delete test namespace: %v", err)
 	}
 })
 
 var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func() {
 	var basem string
-	k8sClient := k8sClientSet()
-	airflowClient := getOperatorClientset()
 
 	BeforeEach(func() {})
 	AfterEach(func() {})
 
 	// --------------- Tests -------------------------
 	It("should create airflow-base using mysql and nfs components", func() {
-		basem = testBaseComponentCreation(airflowv1alpha1.DatabaseMySQL, k8sClient, airflowClient)
+		basem = testBaseComponentCreation(airflowv1alpha1.DatabaseMySQL)
 	})
 
 	// airflowBase() needs to inject sqlproxy config
-	//It("should create airflow-base using sqlproxy and nfs components", func() { testBaseComponentCreation(false, k8sClient, airflowClient) })
+	//It("should create airflow-base using sqlproxy and nfs components", func() { testBaseComponentCreation(false) })
 
 	dags := &airflowv1alpha1.DagSpec{
 		DagSubdir: "airflow/example_dags/",
@@ -358,7 +364,7 @@ var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func()
 		},
 	}
 	It("should create airflow-cluster using celery,git and using mysql base", func() {
-		testClusterComponentCreation(basem, airflowv1alpha1.ExecutorCelery, airflowv1alpha1.DatabaseMySQL, k8sClient, airflowClient, dags)
+		testClusterComponentCreation(basem, airflowv1alpha1.ExecutorCelery, airflowv1alpha1.DatabaseMySQL, dags)
 	})
 
 })
@@ -366,7 +372,7 @@ var _ = Describe("AirflowBase and AirflowCluster Deployment should work", func()
 // Step 1: create AirflowBase object with storage and mysql/sqlproxy
 // Step 2: wait for mysql/sqlproxy StatefulSet and nfs StatefulSet to become ready all pods have to be available
 // Step 3: verify for mysql, the root password secret should be created, Mysql and nfs stateful sets should have 1 pods each
-func testBaseComponentCreation(database string, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client) string {
+func testBaseComponentCreation(database string) string {
 	testname := "base"
 	if database == airflowv1alpha1.DatabaseMySQL {
 		testname += "-m"
@@ -375,11 +381,11 @@ func testBaseComponentCreation(database string, k8sClient *kubernetes.Clientset,
 	} else {
 		testname += "-s"
 	}
-	_, err := airflowClient.AirflowBases(namespace).Create(airflowBase(testname, database))
+	ab := airflowBase(testname, database)
+	err := k8sClient.Create(context.TODO(), ab)
 	Expect(err).NotTo(HaveOccurred(), "failed to create AirflowBase %q: %v", testname, err)
 
-	By(fmt.Sprintf("verifying AirflowBase %s components are created", testname))
-	waitAirflowBase(k8sClient, airflowClient, testname, database)
+	waitAirflowBase(ab, database)
 
 	return testname
 }
@@ -392,11 +398,12 @@ func testBaseComponentCreation(database string, k8sClient *kubernetes.Clientset,
 //     UI is configured correctly to connect to mysql
 //     Workers celery config and mysql config is correct
 //     Scheduler, ui and workers all synced the DAGs from git repo
-func testClusterComponentCreation(base, executor, database string, k8sClient *kubernetes.Clientset, airflowClient *typedairflow.AirflowV1alpha1Client, dags *airflowv1alpha1.DagSpec) {
+func testClusterComponentCreation(base, executor, database string, dags *airflowv1alpha1.DagSpec) {
 	testname := "cluster-cmg"
-	_, err := airflowClient.AirflowClusters(namespace).Create(airflowCluster(testname, base, executor, dags))
+	ac := airflowCluster(testname, base, executor, dags)
+	err := k8sClient.Create(context.TODO(), ac)
 	Expect(err).NotTo(HaveOccurred(), "failed to create AirflowCluster %q: %v", testname, err)
 
 	By(fmt.Sprintf("verifying AirflowCluster %s components are created", testname))
-	waitAirflowCluster(k8sClient, airflowClient, testname, executor)
+	waitAirflowCluster(ac)
 }

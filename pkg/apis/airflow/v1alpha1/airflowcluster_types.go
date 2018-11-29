@@ -375,6 +375,11 @@ func (b *AirflowCluster) UpdateRsrcStatus(status interface{}, err error) bool {
 		b.Status = *esstatus
 	}
 
+	if err != nil {
+		b.Status.SetError("ErrorSeen", err.Error())
+	} else {
+		b.Status.ClearError()
+	}
 	// TODO use err
 	return true
 }

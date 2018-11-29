@@ -14,6 +14,7 @@ limitations under the License.
 package component
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"strings"
 )
@@ -26,14 +27,19 @@ const (
 	LabelComponent   = "component"
 )
 
+// Labels return
+func Labels(cr metav1.Object, component string) map[string]string {
+	return map[string]string{
+		LabelCR:          strings.Trim(reflect.TypeOf(cr).String(), "*"),
+		LabelCRName:      cr.GetName(),
+		LabelCRNamespace: cr.GetNamespace(),
+		LabelComponent:   component,
+	}
+}
+
 // Labels return the common labels for a resource
 func (c *Component) Labels() map[string]string {
-	return map[string]string{
-		LabelCR:          strings.Trim(reflect.TypeOf(c.CR).String(), "*"),
-		LabelCRName:      c.CR.GetName(),
-		LabelCRNamespace: c.CR.GetNamespace(),
-		LabelComponent:   c.Name,
-	}
+	return Labels(c.CR, c.Name)
 }
 
 // Merge is used to merge multiple maps into the target map

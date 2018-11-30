@@ -34,7 +34,7 @@ const (
 	defaultSchedulerImage   = "gcr.io/airflow-operator/airflow"
 	defaultFlowerImage      = "gcr.io/airflow-operator/airflow"
 	gitsyncImage            = "gcr.io/google_containers/git-sync"
-	gitsyncVersion          = "v2.0.6"
+	gitsyncVersion          = "v3.0.1"
 	gcssyncImage            = "gcr.io/cloud-airflow-releaser/gcs-syncd"
 	gcssyncVersion          = "cloud_composer_service_2018-05-23-RC0"
 	ExecutorLocal           = "Local"

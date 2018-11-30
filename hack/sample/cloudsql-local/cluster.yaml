@@ -5,6 +5,6 @@ metadata:
 spec:
   executor: Local
   scheduler:
-    version: "1.10.0rc2"
+    version: "1.10.1"
   airflowbase:
     name: cl-base

@@ -114,38 +114,6 @@ func rsrcName(name string, component string, suffix string) string {
 	return name + "-" + component + suffix
 }
 
-func (r *AirflowBase) getMeta(name string, labels map[string]string) metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Namespace:   r.Namespace,
-		Annotations: r.Spec.Annotations,
-		Labels:      labels,
-		Name:        name,
-		OwnerReferences: []metav1.OwnerReference{
-			*metav1.NewControllerRef(r, schema.GroupVersionKind{
-				Group:   SchemeGroupVersion.Group,
-				Version: SchemeGroupVersion.Version,
-				Kind:    KindAirflowBase,
-			}),
-		},
-	}
-}
-
-func (r *AirflowCluster) getMeta(name string, labels map[string]string) metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Namespace:   r.Namespace,
-		Annotations: r.Spec.Annotations,
-		Labels:      labels,
-		Name:        name,
-		OwnerReferences: []metav1.OwnerReference{
-			*metav1.NewControllerRef(r, schema.GroupVersionKind{
-				Group:   SchemeGroupVersion.Group,
-				Version: SchemeGroupVersion.Version,
-				Kind:    KindAirflowCluster,
-			}),
-		},
-	}
-}
-
 func getApplicationFakeRemove() *application.Application {
 	return &application.Application{}
 }
@@ -319,6 +287,14 @@ type mysqlTmplValue struct {
 
 func tmplSecret(v interface{}) (*resource.Object, error) {
 	return resource.ObjFromFile(TemplatePath+"secret.yaml", v, &corev1.SecretList{})
+}
+
+func tmplServiceaccount(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"serviceaccount.yaml", v, &corev1.ServiceAccountList{})
+}
+
+func tmplRolebinding(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"rolebinding.yaml", v, &rbacv1.RoleBindingList{})
 }
 
 func tmplsvc(v interface{}) (*resource.Object, error) {
@@ -874,32 +850,6 @@ func (s *DagSpec) container(volName string) (bool, corev1.Container) {
 	return init, container
 }
 
-func (s *SchedulerSpec) serviceaccount(r *AirflowCluster, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
-	return &resource.Object{
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &corev1.ServiceAccountList{},
-		Obj: &corev1.ServiceAccount{
-			ObjectMeta: r.getMeta(name, labels),
-		},
-	}
-}
-
-func (s *SchedulerSpec) rb(r *AirflowCluster, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
-	return &resource.Object{
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &rbacv1.RoleBindingList{},
-		Obj: &rbacv1.RoleBinding{
-			ObjectMeta: r.getMeta(name, labels),
-			Subjects: []rbacv1.Subject{
-				{Kind: "ServiceAccount", Name: name, Namespace: r.Namespace},
-			},
-			RoleRef: rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "cluster-admin"},
-		},
-	}
-}
-
 func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 	r := v.(*mysqlTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"scheduler-sts.yaml", v, &appsv1.StatefulSetList{})
@@ -934,11 +884,6 @@ func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(
-		*s.serviceaccount(r, rsrclabels),
-		*s.rb(r, rsrclabels),
-	)
-
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
@@ -963,7 +908,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		Selector:   rsrclabels,
 	}
 
-	for _, fn := range []resource.GetObjectFn{s.sts} {
+	for _, fn := range []resource.GetObjectFn{s.sts, tmplServiceaccount, tmplRolebinding} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err

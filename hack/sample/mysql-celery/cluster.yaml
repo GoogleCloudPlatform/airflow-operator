@@ -20,6 +20,9 @@ metadata:
   name: mc-cluster
 spec:
   executor: Celery
+  config:
+    airflow:
+      AIRFLOW_SOME_CONFIG: SomeValue
   redis:
     operator: False
   scheduler:

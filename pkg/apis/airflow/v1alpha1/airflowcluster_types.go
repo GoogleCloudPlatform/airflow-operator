@@ -227,6 +227,13 @@ func (s *DagSpec) validate(fp *field.Path) field.ErrorList {
 	return errs
 }
 
+// ClusterConfig is used to capture the config for Airflow
+type ClusterConfig struct {
+	// Airflow defines a list of kv pairs that describe env variables injected into the nodes
+	// +optional
+	AirflowEnv map[string]string `json:"airflow,omitempty"`
+}
+
 // AirflowClusterSpec defines the desired state of AirflowCluster
 type AirflowClusterSpec struct {
 	// Selector for fitting pods to nodes whose labels match the selector.
@@ -245,6 +252,9 @@ type AirflowClusterSpec struct {
 	// Airflow Executor desired: local,celery,kubernetes
 	// +optional
 	Executor string `json:"executor,omitempty"`
+	// Airflow config as env list
+	// +optional
+	Config ClusterConfig `json:"config,omitempty"`
 	// Spec for Redis component.
 	// +optional
 	Redis *RedisSpec `json:"redis,omitempty"`

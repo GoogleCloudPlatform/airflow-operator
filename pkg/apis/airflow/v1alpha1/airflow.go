@@ -24,7 +24,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"math/rand"
 	"sigs.k8s.io/kubesdk/pkg/component"
 	"sigs.k8s.io/kubesdk/pkg/finalizer"
@@ -194,6 +193,10 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 					ValueFrom: envFromSecret(redisSecret, "password")},
 				{Name: "REDIS_HOST", Value: redisSvcName},
 			}...)
+	}
+
+	for k, v := range sp.Config.AirflowEnv {
+		env = append(env, corev1.EnvVar{Name: k, Value: v})
 	}
 	return env
 }

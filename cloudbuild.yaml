@@ -3,6 +3,6 @@
 
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '.', '-t', 'gcr.io/airflow-operator/airflow-operator:v1alpha2', '-t', 'gcr.io/airflow-operator/airflow-operator:$REVISION_ID', '-f', 'docker/Dockerfile.controller' ]
+  args: ['build', '.', '-t', 'gcr.io/airflow-operator/airflow-operator:v1alpha2', '-t', 'gcr.io/airflow-operator/airflow-operator:$REVISION_ID', '-f', 'Dockerfile' ]
 
 images: ['gcr.io/airflow-operator/airflow-operator:v1alpha2', 'gcr.io/airflow-operator/airflow-operator:$REVISION_ID']

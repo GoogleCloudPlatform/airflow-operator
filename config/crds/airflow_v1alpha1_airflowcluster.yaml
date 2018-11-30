@@ -28,6 +28,11 @@ spec:
               type: object
             annotations:
               type: object
+            config:
+              properties:
+                airflow:
+                  type: object
+              type: object
             dags:
               properties:
                 gcs:

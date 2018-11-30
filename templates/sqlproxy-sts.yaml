@@ -19,8 +19,8 @@ spec:
       {{$k}}: {{$v}}
       {{end}}
   updateStrategy:
-    type: OnDelete
-  podManagementPolicy: Parallel
+    type: RollingUpdate
+  podManagementPolicy: OrderedReady
   serviceName: {{.SvcName}}
   template:
     metadata:
@@ -33,33 +33,30 @@ spec:
         {{$k}}: {{$v}}
         {{end}}
     spec:
+      ## TODO affinity in code
       terminationGracePeriodSeconds: 30 ## check this change to 180 ?
+      #priorityClassName: something
+      #securityContext:
+      #  fsGroup: 1000
       nodeSelector:
         {{range $k,$v := .Base.Spec.NodeSelector }}
         {{$k}}: {{$v}}
         {{end}}
+      #tolerations:
+      #initContainers:
       containers:
-      - name: nfs-server
-        image: {{.Base.Spec.Storage.Image}}:{{.Base.Spec.Storage.Version}}
+      - name: sqlproxy
+        command:
+        - /cloud_sql_proxy
+        - -instances
+        - $(SQL_INSTANCE)
+        env:
+        - name: SQL_INSTANCE
+          value: {{.Base.Spec.SQLProxy.Project}}:{{.Base.Spec.SQLProxy.Region}}:{{.Base.Spec.SQLProxy.Instance}}=tcp:0.0.0.0:3306
+        image: {{.Base.Spec.SQLProxy.Image}}:{{.Base.Spec.SQLProxy.Version}}
         imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 2049
-          name: nfs
-          protocol: TCP
-        - containerPort: 20048
-          name: mountd
-          protocol: TCP
-        - containerPort: 111
-          name: rpcbind
+        - containerPort: 3306
+          name: sqlproxy
           protocol: TCP
         resources: {}
-        volumeMounts:
-        - mountPath: /exports
-          name: data
-      restartPolicy: Always
-      {{if .Base.Spec.Storage.Volume}}
-      {{else}}
-      volumes:
-      - emptyDir: {}
-        name: data
-      {{end}}

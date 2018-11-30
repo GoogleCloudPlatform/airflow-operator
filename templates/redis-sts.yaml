@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    {{range $k,$v := .Labels }}
+    {{$k}}: {{$v}}
+    {{end}}
+  annotations:
+    {{range $k,$v := .Cluster.Spec.Annotations }}
+    {{$k}}: {{$v}}
+    {{end}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{range $k,$v := .Selector }}
+      {{$k}}: {{$v}}
+      {{end}}
+  updateStrategy:
+    type: OnDelete
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        {{range $k,$v := .Labels }}
+        {{$k}}: {{$v}}
+        {{end}}
+      annotations:
+        {{range $k,$v := .Cluster.Spec.Annotations }}
+        {{$k}}: {{$v}}
+        {{end}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        {{range $k,$v := .Cluster.Spec.NodeSelector }}
+        {{$k}}: {{$v}}
+        {{end}}
+      containers:
+      - name: redis
+        args:
+        - --requirepass
+        - $(REDIS_PASSWORD)
+        {{if .Cluster.Spec.Redis.AdditionalArgs}}
+        - {{.Cluster.Spec.Redis.AdditionalArgs}}
+        {{end}}
+        env:
+        - name: REDIS_EXTRA_FLAGS
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: {{.SecretName}}
+        image: {{.Cluster.Spec.Redis.Image}}:{{.Cluster.Spec.Redis.Version}}
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          failureThreshold: 3
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 5
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 2
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      restartPolicy: Always
+      {{if .Cluster.Spec.Redis.VolumeClaimTemplate}}
+      {{else}}
+      volumes:
+      - emptyDir: {}
+        name: data
+      {{end}}

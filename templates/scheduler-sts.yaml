@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    {{range $k,$v := .Labels }}
+    {{$k}}: {{$v}}
+    {{end}}
+  annotations:
+    {{range $k,$v := .Cluster.Spec.Annotations }}
+    {{$k}}: {{$v}}
+    {{end}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{range $k,$v := .Selector }}
+      {{$k}}: {{$v}}
+      {{end}}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        {{range $k,$v := .Labels }}
+        {{$k}}: {{$v}}
+        {{end}}
+      annotations:
+        {{range $k,$v := .Cluster.Spec.Annotations }}
+        {{$k}}: {{$v}}
+        {{end}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        {{range $k,$v := .Cluster.Spec.NodeSelector }}
+        {{$k}}: {{$v}}
+        {{end}}
+      containers:
+      - name: scheduler
+        args:
+        - scheduler
+        image: {{.Cluster.Spec.Scheduler.Image}}:{{.Cluster.Spec.Scheduler.Version}}
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - mountPath: /usr/local/airflow/dags/
+          name: dags-data
+      - name: metrics
+        image: pbweb/airflow-prometheus-exporter:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9112
+          name: metrics
+      volumes:
+      - emptyDir: {}
+        name: dags-data

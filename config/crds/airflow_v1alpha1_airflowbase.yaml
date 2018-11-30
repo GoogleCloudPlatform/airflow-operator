@@ -98,8 +98,6 @@ spec:
                 version:
                   type: string
               required:
-              - image
-              - version
               - project
               - region
               - instance

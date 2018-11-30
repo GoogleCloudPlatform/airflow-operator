@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    {{range $k,$v := .Labels }}
+    {{$k}}: {{$v}}
+    {{end}}
+  annotations:
+    {{range $k,$v := .Base.Spec.Annotations }}
+    {{$k}}: {{$v}}
+    {{end}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{range $k,$v := .Selector }}
+      {{$k}}: {{$v}}
+      {{end}}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: OrderedReady
+  serviceName: {{.SvcName}}
+  template:
+    metadata:
+      labels:
+        {{range $k,$v := .Labels }}
+        {{$k}}: {{$v}}
+        {{end}}
+      annotations:
+        {{range $k,$v := .Base.Spec.Annotations }}
+        {{$k}}: {{$v}}
+        {{end}}
+    spec:
+      ## TODO affinity in code
+      terminationGracePeriodSeconds: 30 ## check this change to 180 ?
+      #priorityClassName: something
+      #securityContext:
+      #  fsGroup: 1000
+      nodeSelector:
+        {{range $k,$v := .Base.Spec.NodeSelector }}
+        {{$k}}: {{$v}}
+        {{end}}
+      #tolerations:
+      #initContainers:
+      containers:
+      - name: sqlproxy
+        command:
+        - /cloud_sql_proxy
+        - -instances
+        - $(SQL_INSTANCE)
+        env:
+        - name: SQL_INSTANCE
+          value: {{.Base.Spec.SQLProxy.Project}}:{{.Base.Spec.SQLProxy.Region}}:{{.Base.Spec.SQLProxy.Instance}}=tcp:0.0.0.0:3306
+        image: {{.Base.Spec.SQLProxy.Image}}:{{.Base.Spec.SQLProxy.Version}}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3306
+          name: sqlproxy
+          protocol: TCP
+        resources: {}

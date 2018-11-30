@@ -332,9 +332,11 @@ func (s *NFSStoreSpec) validate(fp *field.Path) field.ErrorList {
 // SQLProxySpec defines the attributes to deploy SQL Proxy component
 type SQLProxySpec struct {
 	// Image defines the SQLProxy Docker image name
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 	// Version defines the SQL Proxy docker image version.
-	Version string `json:"version"`
+	// +optional
+	Version string `json:"version,omitempty"`
 	// example: myProject:us-central1:myInstance=tcp:3306
 	// Project defines the SQL instance project
 	Project string `json:"project"`

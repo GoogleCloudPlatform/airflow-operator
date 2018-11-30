@@ -15,6 +15,7 @@ package v1alpha1
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	application "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -24,8 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"math/rand"
+	"sigs.k8s.io/kubesdk/pkg/component"
 	"sigs.k8s.io/kubesdk/pkg/finalizer"
 	"sigs.k8s.io/kubesdk/pkg/resource"
 	"strconv"
@@ -72,21 +73,13 @@ const (
 	afc             = "AIRFLOW__CORE__"
 	AirflowHome     = "/usr/local/airflow"
 	AirflowDagsBase = AirflowHome + "/dags/"
+
+	TemplatePath = "templates/"
 )
 
 var (
 	random = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
-
-// AirflowResource an interface for operating on AirflowResource
-type AirflowResource interface {
-	getMeta(name string, labels map[string]string) metav1.ObjectMeta
-	getAffinity() *corev1.Affinity
-	getNodeSelector() map[string]string
-	getName() string
-	getLabels() map[string]string
-	getCRName() string
-}
 
 func optionsToString(options map[string]string, prefix string) string {
 	var buf bytes.Buffer
@@ -119,58 +112,6 @@ func envFromSecret(name string, key string) *corev1.EnvVarSource {
 
 func rsrcName(name string, component string, suffix string) string {
 	return name + "-" + component + suffix
-}
-
-func (r *AirflowBase) getName() string { return r.Name }
-
-func (r *AirflowBase) getAffinity() *corev1.Affinity { return r.Spec.Affinity }
-
-func (r *AirflowBase) getNodeSelector() map[string]string { return r.Spec.NodeSelector }
-
-func (r *AirflowBase) getLabels() map[string]string { return r.Spec.Labels }
-
-func (r *AirflowBase) getCRName() string { return ValueAirflowCRBase }
-
-func (r *AirflowBase) getMeta(name string, labels map[string]string) metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Namespace:   r.Namespace,
-		Annotations: r.Spec.Annotations,
-		Labels:      labels,
-		Name:        name,
-		OwnerReferences: []metav1.OwnerReference{
-			*metav1.NewControllerRef(r, schema.GroupVersionKind{
-				Group:   SchemeGroupVersion.Group,
-				Version: SchemeGroupVersion.Version,
-				Kind:    KindAirflowBase,
-			}),
-		},
-	}
-}
-
-func (r *AirflowCluster) getName() string { return r.Name }
-
-func (r *AirflowCluster) getAffinity() *corev1.Affinity { return r.Spec.Affinity }
-
-func (r *AirflowCluster) getNodeSelector() map[string]string { return r.Spec.NodeSelector }
-
-func (r *AirflowCluster) getLabels() map[string]string { return r.Spec.Labels }
-
-func (r *AirflowCluster) getCRName() string { return ValueAirflowCRCluster }
-
-func (r *AirflowCluster) getMeta(name string, labels map[string]string) metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Namespace:   r.Namespace,
-		Annotations: r.Spec.Annotations,
-		Labels:      labels,
-		Name:        name,
-		OwnerReferences: []metav1.OwnerReference{
-			*metav1.NewControllerRef(r, schema.GroupVersionKind{
-				Group:   SchemeGroupVersion.Group,
-				Version: SchemeGroupVersion.Version,
-				Kind:    KindAirflowCluster,
-			}),
-		},
-	}
 }
 
 func getApplicationFakeRemove() *application.Application {
@@ -257,17 +198,15 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 	return env
 }
 
-func (r *AirflowCluster) addAirflowContainers(ss *appsv1.StatefulSet, containers []corev1.Container, volName string) {
-	ss.Spec.Template.Spec.InitContainers = []corev1.Container{}
+func (r *AirflowCluster) addAirflowContainers(ss *appsv1.StatefulSet) {
 	if r.Spec.DAGs != nil {
-		init, dagContainer := r.Spec.DAGs.container(volName)
+		init, dagContainer := r.Spec.DAGs.container("dags-data")
 		if init {
-			ss.Spec.Template.Spec.InitContainers = []corev1.Container{dagContainer}
+			ss.Spec.Template.Spec.InitContainers = append(ss.Spec.Template.Spec.InitContainers, dagContainer)
 		} else {
-			containers = append(containers, dagContainer)
+			ss.Spec.Template.Spec.Containers = append(ss.Spec.Template.Spec.Containers, dagContainer)
 		}
 	}
-	ss.Spec.Template.Spec.Containers = containers
 }
 
 func (r *AirflowCluster) addMySQLUserDBContainer(ss *appsv1.StatefulSet) {
@@ -330,170 +269,53 @@ PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREAT
 	ss.Spec.Template.Spec.InitContainers = append(containers, ss.Spec.Template.Spec.InitContainers...)
 }
 
-// sts returns a StatefulSet object which specifies
-//  CPU and memory
-//  resources
-//  volume, volume mount
-//  pod spec
-func sts(r AirflowResource, component string, suffix string, svc bool, labels map[string]string) *appsv1.StatefulSet {
-	name := rsrcName(r.getName(), component, suffix)
-	svcName := ""
-	if svc {
-		svcName = name
-	}
-
-	meta := r.getMeta(name, labels)
-	return &appsv1.StatefulSet{
-		ObjectMeta: meta,
-		Spec: appsv1.StatefulSetSpec{
-			ServiceName: svcName,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: meta.Annotations,
-					Labels:      labels,
-				},
-				Spec: corev1.PodSpec{
-					Affinity:     r.getAffinity(),
-					NodeSelector: r.getNodeSelector(),
-					Subdomain:    name,
-				},
-			},
-		},
-	}
-}
-
-func service(r AirflowResource, component string, name string, labels map[string]string, ports []corev1.ServicePort) *resource.Object {
-	sname := rsrcName(r.getName(), component, "")
-	if name == "" {
-		name = sname
-	}
-	return &resource.Object{
-		Obj: &corev1.Service{
-			ObjectMeta: r.getMeta(name, labels),
-			Spec: corev1.ServiceSpec{
-				Ports:    ports,
-				Selector: labels,
-			},
-		},
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &corev1.ServiceList{},
-	}
-}
-
-func podDisruption(r AirflowResource, component string, suffix string, minavail string, labels map[string]string) *resource.Object {
-	name := rsrcName(r.getName(), component, suffix)
-	minAvailable := intstr.Parse(minavail)
-
-	return &resource.Object{
-		Obj: &policyv1.PodDisruptionBudget{
-			ObjectMeta: r.getMeta(name, labels),
-			Spec: policyv1.PodDisruptionBudgetSpec{
-				MinAvailable: &minAvailable,
-				Selector: &metav1.LabelSelector{
-					MatchLabels: labels,
-				},
-			},
-		},
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &policyv1.PodDisruptionBudgetList{},
-	}
-}
-
 // ------------------------------ MYSQL  ---------------------------------------
 
-func (s *MySQLSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentMySQL,
-		rsrcName(r.Name, ValueAirflowComponentSQL, ""), labels,
-		[]corev1.ServicePort{{Name: "mysql", Port: 3306}})
+type mysqlTmplValue struct {
+	Name        string
+	Namespace   string
+	SecretName  string
+	SvcName     string
+	Base        *AirflowBase
+	Cluster     *AirflowCluster
+	Labels      component.KVMap
+	Selector    component.KVMap
+	Ports       map[string]string
+	Secret      map[string]string
+	PDBMinAvail string
 }
 
-func (s *MySQLSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentMySQL, "", "100%", labels)
+func tmplSecret(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"secret.yaml", v, &corev1.SecretList{})
 }
 
-func (s *MySQLSpec) secret(r *AirflowBase, labels map[string]string) *resource.Object {
-	name := rsrcName(r.getName(), ValueAirflowComponentSQL, "")
-	return &resource.Object{
-		Obj: &corev1.Secret{
-			ObjectMeta: r.getMeta(name, labels),
-			Data: map[string][]byte{
-				"password":     RandomAlphanumericString(16),
-				"rootpassword": RandomAlphanumericString(16),
-			},
-		},
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &corev1.SecretList{},
-	}
+func tmplServiceaccount(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"serviceaccount.yaml", v, &corev1.ServiceAccountList{})
 }
 
-func (s *MySQLSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
-	sqlSecret := rsrcName(r.getName(), ValueAirflowComponentSQL, "")
-	ss := sts(r, ValueAirflowComponentMySQL, "", true, labels)
-	ss.Spec.Replicas = &s.Replicas
-	volName := "mysql-data"
-	if s.VolumeClaimTemplate != nil {
-		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.VolumeClaimTemplate}
-		volName = s.VolumeClaimTemplate.Name
-	} else {
-		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func tmplRolebinding(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"rolebinding.yaml", v, &rbacv1.RoleBindingList{})
+}
+
+func tmplsvc(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"svc.yaml", v, &corev1.ServiceList{})
+}
+
+func tmplpodDisruption(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"pdb.yaml", v, &policyv1.PodDisruptionBudgetList{})
+}
+
+func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"mysql-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.MySQL.Resources
+		if r.Base.Spec.MySQL.VolumeClaimTemplate != nil {
+			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.MySQL.VolumeClaimTemplate}
 		}
 	}
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			Name:  "mysql",
-			Image: s.Image + ":" + s.Version,
-			Env: []corev1.EnvVar{
-				{Name: "MYSQL_DATABASE", Value: "testdb"},
-				{Name: "MYSQL_USER", Value: "airflow"},
-				{Name: "MYSQL_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
-				{Name: "MYSQL_ROOT_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "rootpassword")},
-			},
-			//Args:      []string{"-c", fmt.Sprintf("exec mysql %s", optionsToString(s.Options, "--"))},
-			Args:      []string{"--explicit-defaults-for-timestamp=ON"},
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "mysql",
-					ContainerPort: 3306,
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/var/lib/mysql",
-				},
-			},
-			LivenessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"bash", "-c", "mysqladmin -p$MYSQL_ROOT_PASSWORD ping"},
-					},
-				},
-				InitialDelaySeconds: 30,
-				PeriodSeconds:       20,
-				TimeoutSeconds:      5,
-			},
-			ReadinessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"bash", "-c", "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e \"use testdb\""},
-					},
-				},
-				InitialDelaySeconds: 10,
-				PeriodSeconds:       5,
-				TimeoutSeconds:      2,
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // Mutate - mutate expected
@@ -514,17 +336,29 @@ func (s *MySQLSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	if !s.Operator {
-		resources.Add(
-			*s.secret(r, rsrclabels),
-			*s.service(r, rsrclabels),
-			*s.sts(r, rsrclabels),
-			*s.podDisruption(r, rsrclabels),
-		)
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentMySQL, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		SvcName:    rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		Base:       r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"mysql": "3306"},
+		Secret: map[string]string{
+			"password":     base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+			"rootpassword": base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+		},
+		PDBMinAvail: "100%",
 	}
-	//if s.VolumeClaimTemplate != nil {
-	//	rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
-	//}
+
+	for _, fn := range []resource.GetObjectFn{s.sts, tmplsvc, tmplpodDisruption, tmplSecret} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -567,92 +401,17 @@ func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled
 
 // ------------------------------ POSTGRES  ---------------------------------------
 
-func (s *PostgresSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentPostgres,
-		rsrcName(r.Name, ValueAirflowComponentSQL, ""),
-		labels,
-		[]corev1.ServicePort{{Name: "postgres", Port: 5432}})
-}
-
-func (s *PostgresSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentPostgres, "", "100%", labels)
-}
-
-func (s *PostgresSpec) secret(r *AirflowBase, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
-	return &resource.Object{
-		Obj: &corev1.Secret{
-			ObjectMeta: r.getMeta(name, labels),
-			Data: map[string][]byte{
-				"password":     RandomAlphanumericString(16),
-				"rootpassword": RandomAlphanumericString(16),
-			},
-		},
-	}
-}
-
-func (s *PostgresSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
-	sqlSecret := rsrcName(r.Name, ValueAirflowComponentSQL, "")
-	ss := sts(r, ValueAirflowComponentPostgres, "", true, labels)
-	ss.Spec.Replicas = &s.Replicas
-	volName := "postgres-data"
-	if s.VolumeClaimTemplate != nil {
-		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.VolumeClaimTemplate}
-		volName = s.VolumeClaimTemplate.Name
-	} else {
-		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func (s *PostgresSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"postgres-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Postgres.Resources
+		if r.Base.Spec.Postgres.VolumeClaimTemplate != nil {
+			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Postgres.VolumeClaimTemplate}
 		}
 	}
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			Name:  "postgres",
-			Image: s.Image + ":" + s.Version,
-			Env: []corev1.EnvVar{
-				{Name: "POSTGRES_DB", Value: "testdb"},
-				{Name: "POSTGRES_USER", Value: "airflow"},
-				{Name: "POSTGRES_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "rootpassword")},
-			},
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "postgres",
-					ContainerPort: 5432,
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/var/lib/postgres/data",
-				},
-			},
-			LivenessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"bash", "-c", "psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c SELECT 1"},
-					},
-				},
-				InitialDelaySeconds: 30,
-				PeriodSeconds:       20,
-				TimeoutSeconds:      5,
-			},
-			ReadinessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"bash", "-c", "psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c SELECT 1"},
-					},
-				},
-				InitialDelaySeconds: 10,
-				PeriodSeconds:       5,
-				TimeoutSeconds:      2,
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // Mutate - mutate expected
@@ -673,17 +432,29 @@ func (s *PostgresSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	if !s.Operator {
-		resources.Add(
-			*s.secret(r, rsrclabels),
-			*s.service(r, rsrclabels),
-			*s.sts(r, rsrclabels),
-			*s.podDisruption(r, rsrclabels),
-		)
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentPostgres, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		SvcName:    rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		Base:       r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"postgres": "5432"},
+		Secret: map[string]string{
+			"password":     base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+			"rootpassword": base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+		},
+		PDBMinAvail: "100%",
 	}
-	//if s.VolumeClaimTemplate != nil {
-	//	rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
-	//}
+
+	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, tmplSecret, s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -707,20 +478,6 @@ func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 
 // ------------------------------ Airflow UI ---------------------------------------
 
-func (s *AirflowUISpec) secret(r *AirflowCluster, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentUI, "")
-	return &resource.Object{
-		Obj: &corev1.Secret{
-			ObjectMeta: r.getMeta(name, labels),
-			Data: map[string][]byte{
-				"password": RandomAlphanumericString(16),
-			},
-		},
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &corev1.SecretList{},
-	}
-}
-
 // Mutate - mutate expected
 func (s *AirflowUISpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
@@ -737,7 +494,26 @@ func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.sts(r, rsrclabels), *s.secret(r, rsrclabels))
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentUI, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentUI, ""),
+		Cluster:    r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"web": "8080"},
+		Secret: map[string]string{
+			"password": base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+		},
+	}
+
+	for _, fn := range []resource.GetObjectFn{s.sts, tmplSecret} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -759,63 +535,17 @@ func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconc
 	}
 }
 
-func (s *AirflowUISpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
-	volName := "dags-data"
-	ss := sts(r, ValueAirflowComponentUI, "", false, labels)
-	ss.Spec.Replicas = &s.Replicas
-	ss.Spec.PodManagementPolicy = PodManagementPolicyParallel
-	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-		{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"ui-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.UI.Resources
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		r.Cluster.addAirflowContainers(sts)
+		r.Cluster.addMySQLUserDBContainer(sts)
 	}
-	args := []string{"webserver"}
-	env := r.getAirflowEnv(ss.Name)
-	containers := []corev1.Container{
-		{
-			//imagePullPolicy: "Always"
-			//envFrom:
-			Name:            "airflow-ui",
-			Image:           s.Image + ":" + s.Version,
-			Env:             env,
-			ImagePullPolicy: corev1.PullAlways,
-			Args:            args,
-			Resources:       s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "web",
-					ContainerPort: 8080,
-					//Protocol:      "TCP",
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/usr/local/airflow/dags/",
-				},
-			},
-			LivenessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					HTTPGet: &corev1.HTTPGetAction{
-						Path: "/health",
-						Port: intstr.FromString("web"),
-					},
-				},
-				InitialDelaySeconds: 100,
-				PeriodSeconds:       60,
-				TimeoutSeconds:      2,
-				SuccessThreshold:    1,
-				FailureThreshold:    5,
-			},
-		},
-	}
-
-	r.addAirflowContainers(ss, containers, volName)
-	r.addMySQLUserDBContainer(ss)
-	//	r.addPostgresUserDBContainer(ss)
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // ------------------------------ NFSStoreSpec ---------------------------------------
@@ -836,11 +566,24 @@ func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	resources.Add(
-		*s.sts(r, rsrclabels),
-		*s.service(r, rsrclabels),
-		*s.podDisruption(r, rsrclabels),
-	)
+	var ngdata = mysqlTmplValue{
+		Name:        rsrcName(r.Name, ValueAirflowComponentNFS, ""),
+		Namespace:   r.Namespace,
+		SvcName:     rsrcName(r.Name, ValueAirflowComponentNFS, ""),
+		Base:        r,
+		Labels:      rsrclabels,
+		Selector:    rsrclabels,
+		Ports:       map[string]string{"nfs": "2049", "mountd": "20048", "rpcbind": "111"},
+		PDBMinAvail: "100%",
+	}
+
+	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -849,57 +592,17 @@ func (s *NFSStoreSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsr
 	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
 }
 
-func (s *NFSStoreSpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
-	ss := sts(r, ValueAirflowComponentNFS, "", true, labels)
-	ss.Spec.PodManagementPolicy = PodManagementPolicyParallel
-	volName := "nfs-data"
-	if s.Volume != nil {
-		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.Volume}
-		volName = s.Volume.Name
-	} else {
-		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func (s *NFSStoreSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"nfs-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Storage.Resources
+		if r.Base.Spec.Storage.Volume != nil {
+			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Storage.Volume}
 		}
 	}
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			//imagePullPolicy: "Always"
-			//envFrom:
-			Name:      "nfs-server",
-			Image:     s.Image + ":" + s.Version,
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{Name: "nfs", ContainerPort: 2049},
-				{Name: "mountd", ContainerPort: 20048},
-				{Name: "rpcbind", ContainerPort: 111},
-			},
-			SecurityContext: &corev1.SecurityContext{},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/exports",
-				},
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
-}
-
-func (s *NFSStoreSpec) podDisruption(r *AirflowBase, labels map[string]string) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentNFS, "", "100%", labels)
-}
-
-func (s *NFSStoreSpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentNFS, "", labels,
-		[]corev1.ServicePort{
-			{Name: "nfs", Port: 2049},
-			{Name: "mountd", Port: 20048},
-			{Name: "rpcbind", Port: 111},
-		})
+	return o, err
 }
 
 // Differs returns true if the resource needs to be updated
@@ -916,40 +619,9 @@ func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 }
 
 // ------------------------------ SQLProxy ---------------------------------------
-func (s *SQLProxySpec) service(r *AirflowBase, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentSQLProxy,
-		rsrcName(r.Name, ValueAirflowComponentSQL, ""), labels,
-		[]corev1.ServicePort{{Name: "sqlproxy", Port: 3306}})
-}
 
-func (s *SQLProxySpec) sts(r *AirflowBase, labels map[string]string) *resource.Object {
-	ss := sts(r, ValueAirflowComponentSQLProxy, "", true, labels)
-	instance := s.Project + ":" + s.Region + ":" + s.Instance + "=tcp:0.0.0.0:3306"
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			Name:  "sqlproxy",
-			Image: s.Image + ":" + s.Version,
-			Env: []corev1.EnvVar{
-				{Name: "SQL_INSTANCE", Value: instance},
-			},
-			Command: []string{"/cloud_sql_proxy", "-instances", "$(SQL_INSTANCE)"},
-			//volumeMounts:
-			//- name: ssl-certs
-			//mountPath: /etc/ssl/certs
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "sqlproxy",
-					ContainerPort: 3306,
-				},
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+func (s *SQLProxySpec) sts(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"sqlproxy-sts.yaml", v, &appsv1.StatefulSetList{})
 }
 
 // Mutate - mutate expected
@@ -970,10 +642,8 @@ func (s *SQLProxySpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	name := rsrcName(r.Name, ValueAirflowComponentSQLProxy, "")
+	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
 	resources.Add(
-		*s.service(r, rsrclabels),
-		*s.sts(r, rsrclabels),
 		resource.Object{
 			Lifecycle: resource.LifecycleReferred,
 			Obj: &corev1.Secret{
@@ -983,6 +653,24 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 				},
 			},
 		})
+
+	var ngdata = mysqlTmplValue{
+		Name:      rsrcName(r.Name, ValueAirflowComponentSQLProxy, ""),
+		Namespace: r.Namespace,
+		SvcName:   rsrcName(r.Name, ValueAirflowComponentSQL, ""),
+		Base:      r,
+		Labels:    rsrclabels,
+		Selector:  rsrclabels,
+		Ports:     map[string]string{"sqlproxy": "3306"},
+	}
+
+	for _, fn := range []resource.GetObjectFn{tmplsvc, s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -1005,94 +693,18 @@ func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 }
 
 // ------------------------------ RedisSpec ---------------------------------------
-func (s *RedisSpec) service(r *AirflowCluster, labels map[string]string) *resource.Object {
-	return service(r, ValueAirflowComponentRedis, "", labels,
-		[]corev1.ServicePort{{Name: "redis", Port: 6379}})
-}
 
-func (s *RedisSpec) podDisruption(r *AirflowCluster, labels map[string]string) *resource.Object {
-	return podDisruption(r, ValueAirflowComponentRedis, "", "100%", labels)
-}
-
-func (s *RedisSpec) secret(r *AirflowCluster, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentRedis, "")
-	return &resource.Object{
-		ObjList:   &corev1.SecretList{},
-		Lifecycle: resource.LifecycleManaged,
-		Obj: &corev1.Secret{
-			ObjectMeta: r.getMeta(name, labels),
-			Data: map[string][]byte{
-				"password": RandomAlphanumericString(16),
-			},
-		},
-	}
-}
-
-func (s *RedisSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
-	redisSecret := rsrcName(r.Name, ValueAirflowComponentRedis, "")
-	ss := sts(r, ValueAirflowComponentRedis, "", true, labels)
-	volName := "redis-data"
-	if s.VolumeClaimTemplate != nil {
-		ss.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*s.VolumeClaimTemplate}
-		volName = s.VolumeClaimTemplate.Name
-	} else {
-		ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func (s *RedisSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"redis-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Redis.Resources
+		if r.Cluster.Spec.Redis.VolumeClaimTemplate != nil {
+			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Cluster.Spec.Redis.VolumeClaimTemplate}
 		}
 	}
-	args := []string{"--requirepass", "$(REDIS_PASSWORD)"}
-	if s.AdditionalArgs != "" {
-		args = append(args, "$(REDIS_EXTRA_FLAGS)")
-	}
-	ss.Spec.Template.Spec.Containers = []corev1.Container{
-		{
-			Name:  "redis",
-			Image: s.Image + ":" + s.Version,
-			Env: []corev1.EnvVar{
-				{Name: "REDIS_EXTRA_FLAGS", Value: s.AdditionalArgs},
-				{Name: "REDIS_PASSWORD", ValueFrom: envFromSecret(redisSecret, "password")},
-			},
-			Args:      args,
-			Resources: s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "redis",
-					ContainerPort: 6379,
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/data",
-				},
-			},
-			LivenessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"redis-cli", "ping"},
-					},
-				},
-				InitialDelaySeconds: 30,
-				PeriodSeconds:       20,
-				TimeoutSeconds:      5,
-			},
-			ReadinessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					Exec: &corev1.ExecAction{
-						Command: []string{"redis-cli", "ping"},
-					},
-				},
-				InitialDelaySeconds: 10,
-				PeriodSeconds:       5,
-				TimeoutSeconds:      2,
-			},
-		},
-	}
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // Mutate - mutate expected
@@ -1113,16 +725,29 @@ func (s *RedisSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(
-		*s.secret(r, rsrclabels),
-		*s.service(r, rsrclabels),
-		*s.sts(r, rsrclabels),
-		*s.podDisruption(r, rsrclabels),
-	)
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentRedis, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentRedis, ""),
+		SvcName:    rsrcName(r.Name, ValueAirflowComponentRedis, ""),
+		Cluster:    r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"redis": "6379"},
+		Secret: map[string]string{
+			"password": base64.StdEncoding.EncodeToString(RandomAlphanumericString(16)),
+		},
+		PDBMinAvail: "100%",
+	}
+
+	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, tmplSecret, s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
-	//if s.VolumeClaimTemplate != nil {
-	//		rsrcInfos = append(rsrcInfos, ResourceInfo{LifecycleReferred, s.VolumeClaimTemplate, ""})
-	//	}
 }
 
 // Observables - return selectors
@@ -1225,76 +850,20 @@ func (s *DagSpec) container(volName string) (bool, corev1.Container) {
 	return init, container
 }
 
-func (s *SchedulerSpec) serviceaccount(r *AirflowCluster, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
-	return &resource.Object{
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &corev1.ServiceAccountList{},
-		Obj: &corev1.ServiceAccount{
-			ObjectMeta: r.getMeta(name, labels),
-		},
+func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"scheduler-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		if r.Cluster.Spec.Executor == ExecutorK8s {
+			sts.Spec.Template.Spec.ServiceAccountName = sts.Name
+		}
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Scheduler.Resources
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		sts.Spec.Template.Spec.Containers[1].Env = r.Cluster.getAirflowPrometheusEnv()
+		r.Cluster.addAirflowContainers(sts)
 	}
-}
-
-func (s *SchedulerSpec) rb(r *AirflowCluster, labels map[string]string) *resource.Object {
-	name := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
-	return &resource.Object{
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &rbacv1.RoleBindingList{},
-		Obj: &rbacv1.RoleBinding{
-			ObjectMeta: r.getMeta(name, labels),
-			Subjects: []rbacv1.Subject{
-				{Kind: "ServiceAccount", Name: name, Namespace: r.Namespace},
-			},
-			RoleRef: rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "cluster-admin"},
-		},
-	}
-}
-
-func (s *SchedulerSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
-	volName := "dags-data"
-	ss := sts(r, ValueAirflowComponentScheduler, "", true, labels)
-	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-		{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-	}
-	args := []string{"scheduler"}
-
-	if r.Spec.Executor == ExecutorK8s {
-		ss.Spec.Template.Spec.ServiceAccountName = ss.Name
-	}
-	containers := []corev1.Container{
-		{
-			Name:            "scheduler",
-			Image:           s.Image + ":" + s.Version,
-			Env:             r.getAirflowEnv(ss.Name),
-			ImagePullPolicy: corev1.PullAlways,
-			Args:            args,
-			Resources:       s.Resources,
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/usr/local/airflow/dags/",
-				},
-			},
-		},
-		{
-			Name:  "metrics",
-			Image: "pbweb/airflow-prometheus-exporter:latest",
-			Env:   r.getAirflowPrometheusEnv(),
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "metrics",
-					ContainerPort: 9112,
-				},
-			},
-		},
-	}
-	r.addAirflowContainers(ss, containers, volName)
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // Mutate - mutate expected
@@ -1315,12 +884,6 @@ func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(
-		*s.serviceaccount(r, rsrclabels),
-		*s.rb(r, rsrclabels),
-		*s.sts(r, rsrclabels),
-	)
-
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
@@ -1336,6 +899,22 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		}
 	}
 
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
+		Cluster:    r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+	}
+
+	for _, fn := range []resource.GetObjectFn{s.sts, tmplServiceaccount, tmplRolebinding} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -1358,43 +937,17 @@ func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconc
 }
 
 // ------------------------------ Worker -
-func (s *WorkerSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
-	ss := sts(r, ValueAirflowComponentWorker, "", true, labels)
-	volName := "dags-data"
-	ss.Spec.Replicas = &s.Replicas
-	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-		{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+
+func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"worker-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Worker.Resources
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		r.Cluster.addAirflowContainers(sts)
 	}
-	args := []string{"worker"}
-	env := r.getAirflowEnv(ss.Name)
-	containers := []corev1.Container{
-		{
-			Name:            "worker",
-			Image:           s.Image + ":" + s.Version,
-			Args:            args,
-			Env:             env,
-			ImagePullPolicy: corev1.PullAlways,
-			Resources:       s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "wlog",
-					ContainerPort: 8793,
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/usr/local/airflow/dags/",
-				},
-			},
-		},
-	}
-	r.addAirflowContainers(ss, containers, volName)
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }
 
 // Mutate - mutate expected
@@ -1415,7 +968,23 @@ func (s *WorkerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.sts(r, rsrclabels))
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentWorker, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentWorker, ""),
+		Cluster:    r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"wlog": "8793"},
+	}
+
+	for _, fn := range []resource.GetObjectFn{s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -1456,7 +1025,23 @@ func (s *FlowerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	resources.Add(*s.sts(r, rsrclabels))
+	var ngdata = mysqlTmplValue{
+		Name:       rsrcName(r.Name, ValueAirflowComponentFlower, ""),
+		Namespace:  r.Namespace,
+		SecretName: rsrcName(r.Name, ValueAirflowComponentFlower, ""),
+		Cluster:    r,
+		Labels:     rsrclabels,
+		Selector:   rsrclabels,
+		Ports:      map[string]string{"flower": "5555"},
+	}
+
+	for _, fn := range []resource.GetObjectFn{s.sts} {
+		rinfo, err := fn(&ngdata)
+		if err != nil {
+			return nil, err
+		}
+		resources.Add(*rinfo)
+	}
 	return resources, nil
 }
 
@@ -1478,41 +1063,14 @@ func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconcile
 	}
 }
 
-func (s *FlowerSpec) sts(r *AirflowCluster, labels map[string]string) *resource.Object {
-	ss := sts(r, ValueAirflowComponentFlower, "", true, labels)
-	volName := "dags-data"
-	ss.Spec.Replicas = &s.Replicas
-	ss.Spec.Template.Spec.Volumes = []corev1.Volume{
-		{Name: volName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
+	r := v.(*mysqlTmplValue)
+	o, err := resource.ObjFromFile(TemplatePath+"flower-sts.yaml", v, &appsv1.StatefulSetList{})
+	if err == nil {
+		sts := o.Obj.(*appsv1.StatefulSet)
+		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Flower.Resources
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		r.Cluster.addAirflowContainers(sts)
 	}
-	args := []string{"flower"}
-	env := r.getAirflowEnv(ss.Name)
-	containers := []corev1.Container{
-		{
-			Name:            "flower",
-			Image:           s.Image + ":" + s.Version,
-			Args:            args,
-			Env:             env,
-			ImagePullPolicy: corev1.PullAlways,
-			Resources:       s.Resources,
-			Ports: []corev1.ContainerPort{
-				{
-					Name:          "flower",
-					ContainerPort: 5555,
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      volName,
-					MountPath: "/usr/local/airflow/dags/",
-				},
-			},
-		},
-	}
-	r.addAirflowContainers(ss, containers, volName)
-	return &resource.Object{
-		Obj:       ss,
-		Lifecycle: resource.LifecycleManaged,
-		ObjList:   &appsv1.StatefulSetList{},
-	}
+	return o, err
 }

@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    {{range $k,$v := .Labels }}
+    {{$k}}: {{$v}}
+    {{end}}
+  annotations:
+    {{range $k,$v := .Base.Spec.Annotations }}
+    {{$k}}: {{$v}}
+    {{end}}
+spec:
+  replicas: {{.Base.Spec.Postgres.Replicas}}
+  selector:
+    matchLabels:
+      {{range $k,$v := .Selector }}
+      {{$k}}: {{$v}}
+      {{end}}
+  updateStrategy:
+    type: OnDelete
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        {{range $k,$v := .Labels }}
+        {{$k}}: {{$v}}
+        {{end}}
+      annotations:
+        {{range $k,$v := .Base.Spec.Annotations }}
+        {{$k}}: {{$v}}
+        {{end}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        {{range $k,$v := .Base.Spec.NodeSelector }}
+        {{$k}}: {{$v}}
+        {{end}}
+      containers:
+      - name: postgres
+        args:
+        - --explicit-defaults-for-timestamp=ON
+        env:
+        - name: POSTGRES_DB
+          value: testdb
+        - name: POSTGRES_USER
+          value: airflow
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: rootpassword
+              name: {{.SecretName}}
+        image: {{.Base.Spec.Postgres.Image}}:{{.Base.Spec.Postgres.Version}}
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - bash
+            - -c
+            - psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c SELECT 1
+          failureThreshold: 3
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 5
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          exec:
+            command:
+            - bash
+            - -c
+            - psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c SELECT 1
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 2
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgres/data
+      restartPolicy: Always
+      {{if .Base.Spec.Postgres.VolumeClaimTemplate}}
+      {{else}}
+      volumes:
+      - emptyDir: {}
+        name: data
+      {{end}}

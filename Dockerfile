@@ -14,4 +14,5 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager k8s.io/airflow-
 FROM ubuntu:latest
 WORKDIR /root/
 COPY --from=builder /go/src/k8s.io/airflow-operator/manager .
+COPY templates/ templates/
 ENTRYPOINT ["./manager"]

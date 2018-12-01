@@ -487,6 +487,12 @@ func (b *AirflowCluster) Components() []component.Component {
 			OwnerRef: b.OwnerRef(),
 		})
 	}
+	c = append(c, component.Component{
+		Handle:   b,
+		Name:     ValueAirflowComponentCluster,
+		CR:       b,
+		OwnerRef: b.OwnerRef(),
+	})
 	return c
 }
 

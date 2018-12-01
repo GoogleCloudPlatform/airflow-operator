@@ -44,7 +44,7 @@ func HandleError(info string, name string, e error) error {
 	return e
 }
 
-func (gr *Reconciler) observe(observables []resource.Observable) (*resource.ObjectBag, error) {
+func (gr *Reconciler) observe(observables ...resource.Observable) (*resource.ObjectBag, error) {
 	var returnval *resource.ObjectBag = new(resource.ObjectBag)
 	var err error
 	for _, obs := range observables {
@@ -118,6 +118,7 @@ func specDiffers(o1, o2 metav1.Object) bool {
 // ReconcileCR is a generic function that reconciles expected and observed resources
 func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName, handle cr.Handle) error {
 	var status interface{}
+	expected := &resource.ObjectBag{}
 	update := false
 	rsrc := handle.NewRsrc()
 	name := reflect.TypeOf(rsrc).String() + "/" + namespacedname.String()
@@ -133,9 +134,9 @@ func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName, handle cr
 			components := rsrc.Components()
 			for _, component := range components {
 				if o.GetDeletionTimestamp() == nil {
-					err = gr.ReconcileComponent(name, component, status)
+					err = gr.ReconcileComponent(name, component, status, expected)
 				} else {
-					err = gr.FinalizeComponent(name, component, status)
+					err = gr.FinalizeComponent(name, component, status, expected)
 				}
 			}
 		}
@@ -154,23 +155,24 @@ func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName, handle cr
 	if err != nil {
 		urt.HandleError(fmt.Errorf("error updating %s. %s", name, err.Error()))
 	}
+
 	return err
 }
 
 // ObserveAndMutate is a function that is called to observe and mutate expected resources
-func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, status interface{}, mutate bool) (*resource.ObjectBag, *resource.ObjectBag, string, error) {
+func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, status interface{}, mutate bool, aggregated *resource.ObjectBag) (*resource.ObjectBag, *resource.ObjectBag, string, error) {
 	var err error
 	var expected, observed *resource.ObjectBag
 
 	// Get Expected resources
 	stage := "gathering expected resources"
-	expected, err = c.ExpectedResources(c.CR, c.Labels())
+	expected, err = c.ExpectedResources(c.CR, c.Labels(), aggregated)
 	if err == nil && expected != nil {
 		// Get observables
 		observables := c.Observables(gr.Scheme, c.CR, c.Labels(), expected)
 		// Observe observables
 		stage = "observing resources"
-		observed, err = gr.observe(observables)
+		observed, err = gr.observe(observables...)
 		if mutate && err == nil {
 			// Mutate expected objects
 			stage = "mutating resources"
@@ -191,22 +193,23 @@ func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, sta
 }
 
 // FinalizeComponent is a function that finalizes component
-func (gr *Reconciler) FinalizeComponent(crname string, c component.Component, status interface{}) error {
+func (gr *Reconciler) FinalizeComponent(crname string, c component.Component, status interface{}, aggregated *resource.ObjectBag) error {
 	cname := crname + "(cmpnt:" + c.Name + ")"
 	log.Printf("%s  { finalizing component\n", cname)
 	defer log.Printf("%s  } finalizing component\n", cname)
 
-	_, observed, stage, err := gr.ObserveAndMutate(crname, c, status, false)
+	expected, observed, stage, err := gr.ObserveAndMutate(crname, c, status, false, aggregated)
 
 	if err != nil {
 		HandleError(stage, crname, err)
 	}
+	aggregated.Add(expected.Items()...)
 	err = c.Finalize(c.CR, status, observed)
 	return err
 }
 
 // ReconcileComponent is a generic function that reconciles expected and observed resources
-func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, status interface{}) error {
+func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, status interface{}, aggregated *resource.ObjectBag) error {
 	errs := []error{}
 	reconciled := []metav1.Object{}
 
@@ -214,7 +217,7 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 	log.Printf("%s  { reconciling component\n", cname)
 	defer log.Printf("%s  } reconciling component\n", cname)
 
-	expected, observed, stage, err := gr.ObserveAndMutate(crname, c, status, true)
+	expected, observed, stage, err := gr.ObserveAndMutate(crname, c, status, true, aggregated)
 
 	// Reconciliation logic is straight-forward:
 	// This method gets the list of expected resources and observed resources
@@ -231,6 +234,7 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 	if err != nil {
 		errs = handleErrorArr(stage, crname, err, errs)
 	} else {
+		aggregated.Add(expected.Items()...)
 		log.Printf("%s  Expected Resources:\n", cname)
 		for _, e := range expected.Items() {
 			e.Obj.SetOwnerReferences(c.OwnerRef)
@@ -256,7 +260,7 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 				// rsrc is seen in both expected and observed, update it if needed
 				e.Obj.SetResourceVersion(o.Obj.GetResourceVersion())
 				if e.Lifecycle == resource.LifecycleManaged && specDiffers(e.Obj, o.Obj) && c.Differs(e.Obj, o.Obj) {
-					if err := gr.Update(context.TODO(), e.Obj.(runtime.Object)); err != nil {
+					if err := gr.Update(context.TODO(), e.Obj.(runtime.Object).DeepCopyObject()); err != nil {
 						errs = handleErrorArr("update", eRsrcInfo, err, errs)
 					} else {
 						log.Printf("%s   update: %s\n", cname, eRsrcInfo)

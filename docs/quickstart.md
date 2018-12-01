@@ -3,6 +3,13 @@
 ## One click deployment of Airflow Operator
 [One Click Deployment](https://pantheon.corp.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/)
 
+## Install Application CRD
+The AirflowBase and AirflowCluster CRs result in [Application CRs](https://github.com/kubernetes-sigs/application) being created. Install Application CRD to see the Applications in the [GCP console](https://pantheon.corp.google.com/kubernetes/application)
+```bash
+# install Application CRD
+$ kubectl create -f hack/appcrd.yaml
+```
+
 ## Deploying Airflow Operator using manifests
 Ensure kubeconfig points to your cluster.
 

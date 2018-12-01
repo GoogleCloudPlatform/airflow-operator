@@ -52,6 +52,15 @@ func (a *Application) AddLabels(value component.KVMap) *Application {
 	return a
 }
 
+// Observable returns resource object
+func (a *Application) Observable() *resource.Observable {
+	return &resource.Observable{
+		Obj:     &a.Application,
+		ObjList: &app.ApplicationList{},
+		Labels:  a.GetLabels(),
+	}
+}
+
 // Object returns resource object
 func (a *Application) Object() *resource.Object {
 	return &resource.Object{

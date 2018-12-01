@@ -547,6 +547,12 @@ func (b *AirflowBase) Components() []component.Component {
 			OwnerRef: b.OwnerRef(),
 		})
 	}
+	c = append(c, component.Component{
+		Handle:   b,
+		Name:     ValueAirflowComponentBase,
+		CR:       b,
+		OwnerRef: b.OwnerRef(),
+	})
 	return c
 }
 

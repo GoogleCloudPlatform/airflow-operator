@@ -477,7 +477,6 @@ func (b *AirflowBase) UpdateRsrcStatus(status interface{}, err error) bool {
 	} else {
 		b.Status.ClearError()
 	}
-	// TODO use err
 	return true
 }
 

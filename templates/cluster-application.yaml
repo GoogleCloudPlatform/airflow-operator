@@ -12,6 +12,11 @@ metadata:
     {{$k}}: {{$v}}
     {{end}}
 spec:
+  selector:
+    matchLabels:
+      {{range $k,$v := .Selector }}
+      {{$k}}: {{$v}}
+      {{end}}
   descriptor:
     type: Airflow (cluster)
     version: '1.10.1'

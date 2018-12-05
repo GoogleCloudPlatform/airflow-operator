@@ -5,34 +5,25 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  - "airflow.k8s.io"
+  - "apps"
+  - "policy"
+  - "app.k8s.io"
+  - "rbac.authorization.k8s.io"
   - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
   - validatingwebhookconfigurations
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - ""
-  resources:
+  - airflowbases
+  - airflowclusters
   - secrets
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - ""
-  resources:
+  - serviceaccounts
   - services
+  - statefulsets
+  - rolebindings
+  - poddisruptionbudgets
+  - applications
   verbs:
   - get
   - list

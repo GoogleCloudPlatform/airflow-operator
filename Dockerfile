@@ -15,4 +15,5 @@ FROM ubuntu:latest
 WORKDIR /root/
 COPY --from=builder /go/src/k8s.io/airflow-operator/manager .
 COPY templates/ templates/
+COPY config/crds/ crds/
 ENTRYPOINT ["./manager"]

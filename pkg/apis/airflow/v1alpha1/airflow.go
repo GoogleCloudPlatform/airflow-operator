@@ -138,6 +138,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 	sqlSvcName := rsrcName(sp.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
 	redisSecret := rsrcName(r.Name, ValueAirflowComponentRedis, "")
+	schedulerConfigmap := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
 	redisSvcName := redisSecret
 	dagFolder := AirflowDagsBase
 	if sp.DAGs != nil {
@@ -165,7 +166,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 			{Name: afk + "WORKER_CONTAINER_IMAGE_PULL_POLICY", Value: "IfNotPresent"},
 			{Name: afk + "DELETE_WORKER_PODS", Value: "True"},
 			{Name: afk + "NAMESPACE", Value: r.Namespace},
-			//{Name: afk+"AIRFLOW_CONFIGMAP", Value: ??},
+			{Name: afk + "AIRFLOW_CONFIGMAP", Value: schedulerConfigmap},
 			//{Name: afk+"IMAGE_PULL_SECRETS", Value: s.ImagePullSecrets},
 			//{Name: afk+"GCP_SERVICE_ACCOUNT_KEYS", Vaslue:  ??},
 		}...)
@@ -286,6 +287,7 @@ type mysqlTmplValue struct {
 	Secret      map[string]string
 	PDBMinAvail string
 	Expected    *resource.ObjectBag
+	SQLConn     string
 }
 
 func tmplSecret(v interface{}) (*resource.Object, error) {
@@ -322,7 +324,7 @@ func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Mutate - mutate expected
-func (s *MySQLSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *MySQLSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -418,7 +420,7 @@ func (s *PostgresSpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Mutate - mutate expected
-func (s *PostgresSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *PostgresSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -482,7 +484,7 @@ func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 // ------------------------------ Airflow UI ---------------------------------------
 
 // Mutate - mutate expected
-func (s *AirflowUISpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *AirflowUISpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -554,7 +556,7 @@ func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
 // ------------------------------ NFSStoreSpec ---------------------------------------
 
 // Mutate - mutate expected
-func (s *NFSStoreSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *NFSStoreSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -628,7 +630,7 @@ func (s *SQLProxySpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Mutate - mutate expected
-func (s *SQLProxySpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *SQLProxySpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -711,7 +713,7 @@ func (s *RedisSpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Mutate - mutate expected
-func (s *RedisSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *RedisSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -853,6 +855,10 @@ func (s *DagSpec) container(volName string) (bool, corev1.Container) {
 	return init, container
 }
 
+func (s *SchedulerSpec) configmap(v interface{}) (*resource.Object, error) {
+	return resource.ObjFromFile(TemplatePath+"airflow-configmap.yaml", v, &corev1.ConfigMapList{})
+}
+
 func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 	r := v.(*mysqlTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"scheduler-sts.yaml", v, &appsv1.StatefulSetList{})
@@ -870,13 +876,45 @@ func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Mutate - mutate expected
-func (s *SchedulerSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *SchedulerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+	r := rsrc.(*AirflowCluster)
+	if r.Spec.Executor == ExecutorK8s {
+		sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
+		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
+		se := expected.Get(&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: r.Namespace,
+				Name:      sqlSecret,
+			},
+		},
+		)
+
+		secret := se.(*corev1.Secret)
+		conn := "mysql://" + s.DBUser + ":" + string(secret.Data["password"]) + "@" + sqlSvcName + ":3306/" + s.DBName
+		//conn := "postgresql+psycopg2://" + s.DBUser + ":" + string(ras) + "@" + sqlSvcName + ":5432/" + s.DBName
+
+		var ngdata = mysqlTmplValue{
+			Name:      rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
+			Namespace: r.Namespace,
+			Cluster:   r,
+			Labels:    rsrclabels,
+			SQLConn:   conn,
+		}
+		for _, fn := range []resource.GetObjectFn{s.configmap} {
+			rinfo, err := fn(&ngdata)
+			if err != nil {
+				return nil, err
+			}
+			expected.Add(*rinfo)
+		}
+	}
+
 	return expected, nil
 }
 
 // Finalize - execute finalizers
 func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
+	r := rsrc.(*AirflowCluster)
 	finalizer.Remove(r, finalizer.Cleanup)
 	return nil
 }
@@ -887,6 +925,7 @@ func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
+	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
@@ -909,6 +948,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		Cluster:    r,
 		Labels:     rsrclabels,
 		Selector:   rsrclabels,
+		SQLConn:    "",
 	}
 
 	for _, fn := range []resource.GetObjectFn{s.sts, tmplServiceaccount, tmplRolebinding} {
@@ -917,6 +957,18 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 			return nil, err
 		}
 		resources.Add(*rinfo)
+	}
+	if r.Spec.Executor == ExecutorK8s {
+		resources.Add(
+			resource.Object{
+				Lifecycle: resource.LifecycleReferred,
+				Obj: &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: r.Namespace,
+						Name:      sqlSecret,
+					},
+				},
+			})
 	}
 	return resources, nil
 }
@@ -954,7 +1006,7 @@ func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Mutate - mutate expected
-func (s *WorkerSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *WorkerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1013,7 +1065,7 @@ func (s *WorkerSpec) Differs(expected metav1.Object, observed metav1.Object) boo
 // ------------------------------ Flower ---------------------------------------
 
 // Mutate - mutate expected
-func (s *FlowerSpec) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *FlowerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1081,7 +1133,7 @@ func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
 // ---------------- Global AirflowCluster component -------------------------
 
 // Mutate - mutate expected
-func (r *AirflowCluster) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowCluster) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1149,7 +1201,7 @@ func (r *AirflowCluster) UpdateComponentStatus(rsrci, statusi interface{}, recon
 // ---------------- Global AirflowBase component -------------------------
 
 // Mutate - mutate expected
-func (r *AirflowBase) Mutate(rsrc interface{}, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowBase) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 

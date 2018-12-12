@@ -355,6 +355,9 @@ func (b *AirflowCluster) ApplyDefaults() {
 			b.Spec.Flower.Replicas = 1
 		}
 	}
+	if b.Spec.Executor == "" {
+		b.Spec.Executor = defaultExecutor
+	}
 	if b.Spec.Worker != nil {
 		if b.Spec.Worker.Image == "" {
 			b.Spec.Worker.Image = defaultWorkerImage
@@ -365,9 +368,9 @@ func (b *AirflowCluster) ApplyDefaults() {
 		if b.Spec.Worker.Replicas == 0 {
 			b.Spec.Worker.Replicas = 1
 		}
-	}
-	if b.Spec.Executor == "" {
-		b.Spec.Executor = defaultExecutor
+		if b.Spec.Executor == ExecutorK8s {
+			b.Spec.Worker.Replicas = 0
+		}
 	}
 	if b.Spec.DAGs != nil {
 		if b.Spec.DAGs.Git != nil {
@@ -424,6 +427,11 @@ func (b *AirflowCluster) Validate() error {
 		if b.Spec.Redis == nil {
 			errs = append(errs, field.Required(spec.Child("redis"), "redis required for Celery executor"))
 		}
+		if b.Spec.Worker == nil {
+			errs = append(errs, field.Required(spec.Child("worker"), "worker required for Celery executor"))
+		}
+	}
+	if b.Spec.Executor == ExecutorK8s {
 		if b.Spec.Worker == nil {
 			errs = append(errs, field.Required(spec.Child("worker"), "worker required for Celery executor"))
 		}

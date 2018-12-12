@@ -26,7 +26,8 @@ spec:
   scheduler:
     version: "1.10.0rc2"
   worker:
-    version: "1.10.0rc2"
+    image: "gcr.io/airflow-development-225219/airflow"
+    version: "demo-nr4"
   dags:
     subdir: "airflow/example_dags/"
     git:

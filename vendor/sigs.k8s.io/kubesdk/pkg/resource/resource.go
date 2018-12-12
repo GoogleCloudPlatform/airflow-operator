@@ -132,6 +132,19 @@ func (b *ObjectBag) Get(inobj metav1.Object) metav1.Object {
 	return nil
 }
 
+// Delete returns an item which matched the kind and name
+func (b *ObjectBag) Delete(inobj metav1.Object) {
+	for i, obj := range b.objects {
+		otype := reflect.TypeOf(obj.Obj).String()
+		intype := reflect.TypeOf(inobj).String()
+		if otype == intype && obj.Obj.GetName() == inobj.GetName() && obj.Obj.GetNamespace() == inobj.GetNamespace() {
+			b.objects[i] = b.objects[len(b.objects)-1]
+			b.objects = b.objects[:len(b.objects)-1]
+			break
+		}
+	}
+}
+
 // Validate validates the LocalObjectReference
 func (s *LocalObjectReference) Validate(fp *field.Path, sfield string, errs field.ErrorList, required bool) field.ErrorList {
 	fp = fp.Child(sfield)

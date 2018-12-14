@@ -176,7 +176,14 @@ func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, sta
 		if mutate && err == nil {
 			// Mutate expected objects
 			stage = "mutating resources"
-			expected, err = c.Mutate(c.CR, status, expected, observed)
+			expected, err = c.Mutate(c.CR, c.Labels(), status, expected, observed)
+			if err == nil && expected != nil {
+				// Get observables
+				observables := c.Observables(gr.Scheme, c.CR, c.Labels(), expected)
+				// Observe observables
+				stage = "observing resources after mutation"
+				observed, err = gr.observe(observables...)
+			}
 		}
 	}
 	if err != nil {

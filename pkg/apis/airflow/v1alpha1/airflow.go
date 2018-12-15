@@ -116,22 +116,28 @@ func rsrcName(name string, component string, suffix string) string {
 	return name + "-" + component + suffix
 }
 
-func (r *AirflowCluster) addExpectedResources(*resource.ObjectBag) error {
-
-	return nil
+func (r *AirflowCluster) dependantResources() *resource.ObjectBag {
+	rsrc := &resource.ObjectBag{}
+	rsrc.Add(resource.ReferredObject(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace))
+	return rsrc
 }
 
-func (r *AirflowCluster) getAirflowPrometheusEnv() []corev1.EnvVar {
+func (r *AirflowCluster) getAirflowPrometheusEnv(base *AirflowBase) []corev1.EnvVar {
 	sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
 	ap := "AIRFLOW_PROMETHEUS_"
 	apd := ap + "DATABASE_"
+	backend := "mysql"
+	port := "3306"
+	if base.Spec.Postgres != nil {
+		backend = "postgres"
+		port = "5432"
+	}
 	env := []corev1.EnvVar{
 		{Name: ap + "LISTEN_ADDR", Value: ":9112"},
-		// TODO dbType = "postgres"
-		{Name: apd + "BACKEND", Value: "mysql"},
+		{Name: apd + "BACKEND", Value: backend},
 		{Name: apd + "HOST", Value: sqlSvcName},
-		{Name: apd + "PORT", Value: "3306"},
+		{Name: apd + "PORT", Value: port},
 		{Name: apd + "USER", Value: r.Spec.Scheduler.DBUser},
 		{Name: apd + "PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
 		{Name: apd + "NAME", Value: r.Spec.Scheduler.DBName},
@@ -139,7 +145,7 @@ func (r *AirflowCluster) getAirflowPrometheusEnv() []corev1.EnvVar {
 	return env
 }
 
-func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
+func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev1.EnvVar {
 	sp := r.Spec
 	sqlSvcName := rsrcName(sp.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
@@ -155,7 +161,9 @@ func (r *AirflowCluster) getAirflowEnv(saName string) []corev1.EnvVar {
 		}
 	}
 	dbType := "mysql"
-	// TODO dbType = "postgres"
+	if base.Spec.Postgres != nil {
+		dbType = "postgres"
+	}
 	env := []corev1.EnvVar{
 		{Name: "EXECUTOR", Value: sp.Executor},
 		{Name: "SQL_PASSWORD", ValueFrom: envFromSecret(sqlSecret, "password")},
@@ -501,7 +509,8 @@ func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 
 // DependantResources - return dependant resources
 func (s *AirflowUISpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
+	r := rsrc.(*AirflowCluster)
+	return r.dependantResources()
 }
 
 // Mutate - mutate expected
@@ -511,7 +520,7 @@ func (s *AirflowUISpec) Mutate(rsrc interface{}, rsrclabels map[string]string, s
 
 // Finalize - execute finalizers
 func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
+	r := rsrc.(*AirflowCluster)
 	finalizer.Remove(r, finalizer.Cleanup)
 	return nil
 }
@@ -520,11 +529,14 @@ func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
+	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	base := b.(*AirflowBase)
 	var ngdata = mysqlTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentUI, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentUI, ""),
 		Cluster:    r,
+		Base:       base,
 		Labels:     rsrclabels,
 		Selector:   rsrclabels,
 		Ports:      map[string]string{"web": "8080"},
@@ -541,8 +553,7 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		resources.Add(*rinfo)
 	}
 
-	err := r.addExpectedResources(resources)
-	return resources, err
+	return resources, nil
 }
 
 // Observables - return selectors
@@ -569,9 +580,13 @@ func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.UI.Resources
-		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
-		r.Cluster.addMySQLUserDBContainer(sts)
+		if r.Base.Spec.Postgres != nil {
+			r.Cluster.addPostgresUserDBContainer(sts)
+		} else {
+			r.Cluster.addMySQLUserDBContainer(sts)
+		}
 	}
 	return o, err
 }
@@ -681,16 +696,7 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
 	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
-	resources.Add(
-		resource.Object{
-			Lifecycle: resource.LifecycleReferred,
-			Obj: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: r.Namespace,
-					Name:      name,
-				},
-			},
-		})
+	resources.Add(resource.ReferredObject(&corev1.Secret{}, name, r.Namespace))
 
 	var ngdata = mysqlTmplValue{
 		Name:      rsrcName(r.Name, ValueAirflowComponentSQLProxy, ""),
@@ -906,8 +912,8 @@ func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 			sts.Spec.Template.Spec.ServiceAccountName = sts.Name
 		}
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Scheduler.Resources
-		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
-		sts.Spec.Template.Spec.Containers[1].Env = r.Cluster.getAirflowPrometheusEnv()
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
+		sts.Spec.Template.Spec.Containers[1].Env = r.Cluster.getAirflowPrometheusEnv(r.Base)
 		r.Cluster.addAirflowContainers(sts)
 	}
 	return o, err
@@ -915,8 +921,8 @@ func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 
 // DependantResources - return dependant resources
 func (s *SchedulerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
+	resources := r.dependantResources()
 	if r.Spec.Executor == ExecutorK8s {
 		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
 		resources.Add(resource.ReferredObject(&corev1.Secret{}, sqlSecret, r.Namespace))
@@ -942,18 +948,12 @@ func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
+	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	base := b.(*AirflowBase)
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
-			resources.Add(resource.Object{
-				Lifecycle: resource.LifecycleReferred,
-				Obj: &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: r.Namespace,
-						Name:      git.CredSecretRef.Name,
-					},
-				},
-			})
+			resources.Add(resource.ReferredObject(&corev1.Secret{}, git.CredSecretRef.Name, r.Namespace))
 		}
 	}
 
@@ -962,9 +962,14 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
 		se := dependent.Get(&corev1.Secret{}, sqlSecret, r.Namespace)
 		secret := se.(*corev1.Secret)
-		// TODO dbType = "postgres"
-		conn := "mysql://" + s.DBUser + ":" + string(secret.Data["password"]) + "@" + sqlSvcName + ":3306/" + s.DBName
-		//conn := "postgresql+psycopg2://" + s.DBUser + ":" + string(ras) + "@" + sqlSvcName + ":5432/" + s.DBName
+
+		dbPrefix := "mysql"
+		port := "3306"
+		if base.Spec.Postgres != nil {
+			dbPrefix = "postgresql+psycopg2"
+			port = "5432"
+		}
+		conn := dbPrefix + "://" + s.DBUser + ":" + string(secret.Data["password"]) + "@" + sqlSvcName + ":" + port + "/" + s.DBName
 
 		var ngdata = mysqlTmplValue{
 			Name:      rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
@@ -986,6 +991,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
 		Cluster:    r,
+		Base:       base,
 		Labels:     rsrclabels,
 		Selector:   rsrclabels,
 		SQLConn:    "",
@@ -1027,7 +1033,7 @@ func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Worker.Resources
-		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
 	}
 	return o, err
@@ -1035,7 +1041,8 @@ func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
 
 // DependantResources - return dependant resources
 func (s *WorkerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
+	r := rsrc.(*AirflowCluster)
+	return r.dependantResources()
 }
 
 // Mutate - mutate expected
@@ -1056,11 +1063,14 @@ func (s *WorkerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
+	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	base := b.(*AirflowBase)
 	var ngdata = mysqlTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentWorker, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentWorker, ""),
 		Cluster:    r,
+		Base:       base,
 		Labels:     rsrclabels,
 		Selector:   rsrclabels,
 		Ports:      map[string]string{"wlog": "8793"},
@@ -1099,7 +1109,8 @@ func (s *WorkerSpec) Differs(expected metav1.Object, observed metav1.Object) boo
 
 // DependantResources - return dependant resources
 func (s *FlowerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
+	r := rsrc.(*AirflowCluster)
+	return r.dependantResources()
 }
 
 // Mutate - mutate expected
@@ -1118,11 +1129,14 @@ func (s *FlowerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
+	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	base := b.(*AirflowBase)
 	var ngdata = mysqlTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentFlower, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentFlower, ""),
 		Cluster:    r,
+		Base:       base,
 		Labels:     rsrclabels,
 		Selector:   rsrclabels,
 		Ports:      map[string]string{"flower": "5555"},
@@ -1162,7 +1176,7 @@ func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Flower.Resources
-		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name)
+		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
 	}
 	return o, err

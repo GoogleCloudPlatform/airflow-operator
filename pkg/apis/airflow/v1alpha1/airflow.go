@@ -116,6 +116,11 @@ func rsrcName(name string, component string, suffix string) string {
 	return name + "-" + component + suffix
 }
 
+func (r *AirflowCluster) addExpectedResources(*resource.ObjectBag) error {
+
+	return nil
+}
+
 func (r *AirflowCluster) getAirflowPrometheusEnv() []corev1.EnvVar {
 	sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
@@ -123,6 +128,7 @@ func (r *AirflowCluster) getAirflowPrometheusEnv() []corev1.EnvVar {
 	apd := ap + "DATABASE_"
 	env := []corev1.EnvVar{
 		{Name: ap + "LISTEN_ADDR", Value: ":9112"},
+		// TODO dbType = "postgres"
 		{Name: apd + "BACKEND", Value: "mysql"},
 		{Name: apd + "HOST", Value: sqlSvcName},
 		{Name: apd + "PORT", Value: "3306"},
@@ -323,8 +329,13 @@ func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
+// DependantResources - return dependant resources
+func (s *MySQLSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *MySQLSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *MySQLSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -338,7 +349,7 @@ func (s *MySQLSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
 	var ngdata = mysqlTmplValue{
@@ -419,8 +430,13 @@ func (s *PostgresSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
+// DependantResources - return dependant resources
+func (s *PostgresSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *PostgresSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *PostgresSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -434,7 +450,7 @@ func (s *PostgresSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
 	var ngdata = mysqlTmplValue{
@@ -483,8 +499,13 @@ func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 
 // ------------------------------ Airflow UI ---------------------------------------
 
+// DependantResources - return dependant resources
+func (s *AirflowUISpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *AirflowUISpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *AirflowUISpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -496,7 +517,7 @@ func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
 	var ngdata = mysqlTmplValue{
@@ -519,7 +540,9 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		}
 		resources.Add(*rinfo)
 	}
-	return resources, nil
+
+	err := r.addExpectedResources(resources)
+	return resources, err
 }
 
 // Observables - return selectors
@@ -555,8 +578,13 @@ func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
 
 // ------------------------------ NFSStoreSpec ---------------------------------------
 
+// DependantResources - return dependant resources
+func (s *NFSStoreSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *NFSStoreSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *NFSStoreSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -568,7 +596,7 @@ func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
 	var ngdata = mysqlTmplValue{
@@ -629,8 +657,13 @@ func (s *SQLProxySpec) sts(v interface{}) (*resource.Object, error) {
 	return resource.ObjFromFile(TemplatePath+"sqlproxy-sts.yaml", v, &appsv1.StatefulSetList{})
 }
 
+// DependantResources - return dependant resources
+func (s *SQLProxySpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *SQLProxySpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *SQLProxySpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -644,7 +677,7 @@ func (s *SQLProxySpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
 	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
@@ -712,8 +745,13 @@ func (s *RedisSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
+// DependantResources - return dependant resources
+func (s *RedisSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *RedisSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *RedisSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -727,7 +765,7 @@ func (s *RedisSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
 	var ngdata = mysqlTmplValue{
@@ -875,40 +913,19 @@ func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
-// Mutate - mutate expected
-func (s *SchedulerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+// DependantResources - return dependant resources
+func (s *SchedulerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
 	if r.Spec.Executor == ExecutorK8s {
-		sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
-		se := expected.Get(&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: r.Namespace,
-				Name:      sqlSecret,
-			},
-		},
-		)
-
-		secret := se.(*corev1.Secret)
-		conn := "mysql://" + s.DBUser + ":" + string(secret.Data["password"]) + "@" + sqlSvcName + ":3306/" + s.DBName
-		//conn := "postgresql+psycopg2://" + s.DBUser + ":" + string(ras) + "@" + sqlSvcName + ":5432/" + s.DBName
-
-		var ngdata = mysqlTmplValue{
-			Name:      rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
-			Namespace: r.Namespace,
-			Cluster:   r,
-			Labels:    rsrclabels,
-			SQLConn:   conn,
-		}
-		for _, fn := range []resource.GetObjectFn{s.configmap} {
-			rinfo, err := fn(&ngdata)
-			if err != nil {
-				return nil, err
-			}
-			expected.Add(*rinfo)
-		}
+		resources.Add(resource.ReferredObject(&corev1.Secret{}, sqlSecret, r.Namespace))
 	}
+	return resources
+}
 
+// Mutate - mutate expected
+func (s *SchedulerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -922,10 +939,9 @@ func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.Objec
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
@@ -941,6 +957,30 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		}
 	}
 
+	if r.Spec.Executor == ExecutorK8s {
+		sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
+		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
+		se := dependent.Get(&corev1.Secret{}, sqlSecret, r.Namespace)
+		secret := se.(*corev1.Secret)
+		// TODO dbType = "postgres"
+		conn := "mysql://" + s.DBUser + ":" + string(secret.Data["password"]) + "@" + sqlSvcName + ":3306/" + s.DBName
+		//conn := "postgresql+psycopg2://" + s.DBUser + ":" + string(ras) + "@" + sqlSvcName + ":5432/" + s.DBName
+
+		var ngdata = mysqlTmplValue{
+			Name:      rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
+			Namespace: r.Namespace,
+			Cluster:   r,
+			Labels:    rsrclabels,
+			SQLConn:   conn,
+		}
+		for _, fn := range []resource.GetObjectFn{s.configmap} {
+			rinfo, err := fn(&ngdata)
+			if err != nil {
+				return nil, err
+			}
+			resources.Add(*rinfo)
+		}
+	}
 	var ngdata = mysqlTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
 		Namespace:  r.Namespace,
@@ -957,18 +997,6 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 			return nil, err
 		}
 		resources.Add(*rinfo)
-	}
-	if r.Spec.Executor == ExecutorK8s {
-		resources.Add(
-			resource.Object{
-				Lifecycle: resource.LifecycleReferred,
-				Obj: &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: r.Namespace,
-						Name:      sqlSecret,
-					},
-				},
-			})
 	}
 	return resources, nil
 }
@@ -1005,8 +1033,13 @@ func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
+// DependantResources - return dependant resources
+func (s *WorkerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *WorkerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *WorkerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1020,7 +1053,7 @@ func (s *WorkerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
 	var ngdata = mysqlTmplValue{
@@ -1064,8 +1097,13 @@ func (s *WorkerSpec) Differs(expected metav1.Object, observed metav1.Object) boo
 
 // ------------------------------ Flower ---------------------------------------
 
+// DependantResources - return dependant resources
+func (s *FlowerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (s *FlowerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *FlowerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1077,7 +1115,7 @@ func (s *FlowerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBa
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
 	var ngdata = mysqlTmplValue{
@@ -1132,8 +1170,13 @@ func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
 
 // ---------------- Global AirflowCluster component -------------------------
 
+// DependantResources - return dependant resources
+func (r *AirflowCluster) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (r *AirflowCluster) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowCluster) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1157,7 +1200,7 @@ func (r *AirflowCluster) appcrd(v interface{}) (*resource.Object, error) {
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 
 	selectors := make(map[string]string)
@@ -1200,8 +1243,13 @@ func (r *AirflowCluster) UpdateComponentStatus(rsrci, statusi interface{}, recon
 
 // ---------------- Global AirflowBase component -------------------------
 
+// DependantResources - return dependant resources
+func (r *AirflowBase) DependantResources(rsrc interface{}) *resource.ObjectBag {
+	return &resource.ObjectBag{}
+}
+
 // Mutate - mutate expected
-func (r *AirflowBase) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowBase) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
 	return expected, nil
 }
 
@@ -1225,7 +1273,7 @@ func (r *AirflowBase) appcrd(v interface{}) (*resource.Object, error) {
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 
 	selectors := make(map[string]string)

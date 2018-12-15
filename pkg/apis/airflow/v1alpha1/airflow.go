@@ -288,7 +288,7 @@ PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREAT
 
 // ------------------------------ MYSQL  ---------------------------------------
 
-type mysqlTmplValue struct {
+type commonTmplValue struct {
 	Name        string
 	Namespace   string
 	SecretName  string
@@ -325,7 +325,7 @@ func tmplpodDisruption(v interface{}) (*resource.Object, error) {
 }
 
 func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"mysql-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -360,7 +360,7 @@ func (s *MySQLSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentMySQL, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentSQL, ""),
@@ -426,7 +426,7 @@ func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled
 // ------------------------------ POSTGRES  ---------------------------------------
 
 func (s *PostgresSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"postgres-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -461,7 +461,7 @@ func (s *PostgresSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentPostgres, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentSQL, ""),
@@ -531,7 +531,7 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	r := rsrc.(*AirflowCluster)
 	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentUI, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentUI, ""),
@@ -575,7 +575,7 @@ func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconc
 }
 
 func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"ui-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -614,7 +614,7 @@ func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.Object
 func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowBase)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:        rsrcName(r.Name, ValueAirflowComponentNFS, ""),
 		Namespace:   r.Namespace,
 		SvcName:     rsrcName(r.Name, ValueAirflowComponentNFS, ""),
@@ -641,7 +641,7 @@ func (s *NFSStoreSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsr
 }
 
 func (s *NFSStoreSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"nfs-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -698,7 +698,7 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
 	resources.Add(resource.ReferredObject(&corev1.Secret{}, name, r.Namespace))
 
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:      rsrcName(r.Name, ValueAirflowComponentSQLProxy, ""),
 		Namespace: r.Namespace,
 		SvcName:   rsrcName(r.Name, ValueAirflowComponentSQL, ""),
@@ -739,7 +739,7 @@ func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 // ------------------------------ RedisSpec ---------------------------------------
 
 func (s *RedisSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"redis-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -774,7 +774,7 @@ func (s *RedisSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag
 func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
 	var resources *resource.ObjectBag = new(resource.ObjectBag)
 	r := rsrc.(*AirflowCluster)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentRedis, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentRedis, ""),
@@ -904,7 +904,7 @@ func (s *SchedulerSpec) configmap(v interface{}) (*resource.Object, error) {
 }
 
 func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"scheduler-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -971,7 +971,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		}
 		conn := dbPrefix + "://" + s.DBUser + ":" + string(secret.Data["password"]) + "@" + sqlSvcName + ":" + port + "/" + s.DBName
 
-		var ngdata = mysqlTmplValue{
+		var ngdata = commonTmplValue{
 			Name:      rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
 			Namespace: r.Namespace,
 			Cluster:   r,
@@ -986,7 +986,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 			resources.Add(*rinfo)
 		}
 	}
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentScheduler, ""),
@@ -1028,7 +1028,7 @@ func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconc
 // ------------------------------ Worker -
 
 func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"worker-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -1065,7 +1065,7 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	r := rsrc.(*AirflowCluster)
 	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentWorker, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentWorker, ""),
@@ -1131,7 +1131,7 @@ func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	r := rsrc.(*AirflowCluster)
 	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentFlower, ""),
 		Namespace:  r.Namespace,
 		SecretName: rsrcName(r.Name, ValueAirflowComponentFlower, ""),
@@ -1171,7 +1171,7 @@ func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconcile
 }
 
 func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
-	r := v.(*mysqlTmplValue)
+	r := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"flower-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
 		sts := o.Obj.(*appsv1.StatefulSet)
@@ -1201,7 +1201,7 @@ func (r *AirflowCluster) Finalize(rsrc, sts interface{}, observed *resource.Obje
 }
 
 func (r *AirflowCluster) appcrd(v interface{}) (*resource.Object, error) {
-	value := v.(*mysqlTmplValue)
+	value := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"cluster-application.yaml", v, nil)
 
 	if err == nil {
@@ -1222,7 +1222,7 @@ func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[stri
 		selectors[k] = v
 	}
 	delete(selectors, component.LabelComponent)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:      rsrcName(r.Name, ValueAirflowComponentCluster, ""),
 		Namespace: r.Namespace,
 		Labels:    rsrclabels,
@@ -1274,7 +1274,7 @@ func (r *AirflowBase) Finalize(rsrc, sts interface{}, observed *resource.ObjectB
 }
 
 func (r *AirflowBase) appcrd(v interface{}) (*resource.Object, error) {
-	value := v.(*mysqlTmplValue)
+	value := v.(*commonTmplValue)
 	o, err := resource.ObjFromFile(TemplatePath+"base-application.yaml", v, nil)
 
 	if err == nil {
@@ -1295,7 +1295,7 @@ func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]
 		selectors[k] = v
 	}
 	delete(selectors, component.LabelComponent)
-	var ngdata = mysqlTmplValue{
+	var ngdata = commonTmplValue{
 		Name:      rsrcName(r.Name, ValueAirflowComponentBase, ""),
 		Namespace: r.Namespace,
 		Labels:    rsrclabels,

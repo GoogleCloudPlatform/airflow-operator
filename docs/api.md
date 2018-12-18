@@ -186,7 +186,7 @@ up. This improves cluster utilization and provide multiple users (in same trust 
 | Rev | string | `rev` | Rev is the git hash to be used for syncing |
 | User | string | `user` | User for git access |
 | Once | bool | `once` | Once syncs initially and quits (use init container instead of sidecar) |
-| CredSecretRef | \*corev1.LocalObjectReference | `cred` | Reference to git credentials (user, password, ssh etc) |
+| CredSecretRef | \*corev1.LocalObjectReference | `cred` | Reference to a Secret that has git credentials in field `password`. It is injected as env `GIT_SYNC_PASSWORD` in [git-sync](https://github.com/kubernetes/git-sync) container.Refer to how the `password` is [used in git-sync](https://github.com/kubernetes/git-sync/blob/40e188fb26ecad2d8174e486fc104939c6b1271d/cmd/git-sync/main.go#L477:6) |
 
 #### DagSpec
 | **Field** | **Type** | **json field** | **Info** |

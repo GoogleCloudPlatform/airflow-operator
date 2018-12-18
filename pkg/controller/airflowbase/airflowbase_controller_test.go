@@ -36,13 +36,24 @@ import (
 var c client.Client
 
 var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: "foo", Namespace: "default"}}
-var depKey = types.NamespacedName{Name: "foo-deployment", Namespace: "default"}
+var mysqlkey = types.NamespacedName{Name: "foo-mysql", Namespace: "default"}
+var nfskey = types.NamespacedName{Name: "foo-nfs", Namespace: "default"}
 
 const timeout = time.Second * 5
 
 func TestReconcile(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	instance := &airflowv1alpha1.AirflowBase{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "default"}}
+	instance := &airflowv1alpha1.AirflowBase{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "default"},
+		Spec: airflowv1alpha1.AirflowBaseSpec{
+			MySQL: &airflowv1alpha1.MySQLSpec{
+				Operator: false,
+			},
+			Storage: &airflowv1alpha1.NFSStoreSpec{
+				Version: "",
+			},
+		},
+	}
 
 	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
 	// channel when it is finished.
@@ -72,17 +83,18 @@ func TestReconcile(t *testing.T) {
 	defer c.Delete(context.TODO(), instance)
 	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
 
-	deploy := &appsv1.Deployment{}
-	g.Eventually(func() error { return c.Get(context.TODO(), depKey, deploy) }, timeout).
-		Should(gomega.Succeed())
+	mysqlsts := &appsv1.StatefulSet{}
+	nfssts := &appsv1.StatefulSet{}
+	g.Eventually(func() error { return c.Get(context.TODO(), mysqlkey, mysqlsts) }, timeout).Should(gomega.Succeed())
+	g.Eventually(func() error { return c.Get(context.TODO(), nfskey, nfssts) }, timeout).Should(gomega.Succeed())
 
 	// Delete the Deployment and expect Reconcile to be called for Deployment deletion
-	g.Expect(c.Delete(context.TODO(), deploy)).NotTo(gomega.HaveOccurred())
+	g.Expect(c.Delete(context.TODO(), mysqlsts)).NotTo(gomega.HaveOccurred())
 	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
-	g.Eventually(func() error { return c.Get(context.TODO(), depKey, deploy) }, timeout).
-		Should(gomega.Succeed())
+	g.Eventually(func() error { return c.Get(context.TODO(), mysqlkey, mysqlsts) }, timeout).Should(gomega.Succeed())
 
 	// Manually delete Deployment since GC isn't enabled in the test control plane
-	g.Expect(c.Delete(context.TODO(), deploy)).To(gomega.Succeed())
+	g.Expect(c.Delete(context.TODO(), mysqlsts)).To(gomega.Succeed())
+	g.Expect(c.Delete(context.TODO(), nfssts)).To(gomega.Succeed())
 
 }

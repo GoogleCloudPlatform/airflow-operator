@@ -6,6 +6,8 @@ all: test manager
 
 # Run tests
 test: generate fmt vet manifests
+	ln -s ../../../templates/ pkg/controller/airflowbase/ || true
+	ln -s ../../../templates/ pkg/controller/airflowcluster/ || true
 	go test ./pkg/... ./cmd/... -coverprofile cover.out
 
 # Build manager binary
@@ -28,6 +30,11 @@ install: manifests
 deploy: manifests
 	kubectl apply -f config/crds
 	kustomize build config/default | kubectl apply -f -
+
+# Deploy controller in the configured Kubernetes cluster in ~/.kube/config
+undeploy: manifests
+	kustomize build config/default | kubectl delete -f -
+	kubectl delete -f config/crds
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests:

@@ -1,33 +1,58 @@
 # Quick Start
 
-## One click deployment of Airflow Operator
-[One Click Deployment](https://pantheon.corp.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/)
+## Deploy from GCP Marketplace
+[One Click Deployment](https://pantheon.corp.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/). The marketplace may not have the latest version of the operator. If you need to deploy from latest master continue reading.
 
-## Install Application CRD
+## Running from source
+Refer to the [Development Guide](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/development.md).
+
+## Installing on any cluster
+Ensure kubeconfig points to your cluster.
+Due to a [known issue](https://cloud.google.com/kubernetes-engine/docs/how-to/role-based-access-control#defining_permissions_in_a_role) in GKE, you will need to first grant yourself cluster-admin privileges before you can create custom roles and role bindings on a GKE cluster versioned 1.6 and up.
+```bash
+# grant admin 
+$ kubectl create clusterrolebinding cluster-admin-binding --clusterrole cluster-admin --user your-account-email
+```
+
+### Install Application CRD
 The AirflowBase and AirflowCluster CRs result in [Application CRs](https://github.com/kubernetes-sigs/application) being created. Install Application CRD to see the Applications in the [GCP console](https://pantheon.corp.google.com/kubernetes/application)
 ```bash
 # install Application CRD
 $ kubectl create -f hack/appcrd.yaml
 ```
 
-## Deploying Airflow Operator using manifests
-Ensure kubeconfig points to your cluster.
+### Install Airflow CRDs
+Install the AirflowBase and AirflowCluster CRDs.
+```bash
+# install Airflow CRD
+$ make install
+```
 
-Due to a [known issue](https://cloud.google.com/kubernetes-engine/docs/how-to/role-based-access-control#defining_permissions_in_a_role) in GKE, you will need to first grant yourself cluster-admin privileges before you can create custom roles and role bindings on a GKE cluster versioned 1.6 and up.
-
-Installing the airflow operator creates the 'airflow-system' namespace and creates stateful set in that namespace for the operator.
+### Build operator docker image
 
 ```bash
-# deploy airflow-controller
-$ kubectl create -f manifests/install_deps.yaml
-$ sleep 60 # wait for cluster role binding to propagate
-$ kubectl create -f manifests/install_controller.yaml
+# First we need to build the docker image for the controller
+# Set this to the name of the docker registry and image you want to use
+$ export IMG=gcr.io/myproject/airflow-controller:latest 
 
-# check airflow controller pods
-$ kubectl get pod airflow-controller-manager-0 -n airflow-system
+# Build and push
+$ make docker-build
+$ make push 
+```
+
+### Deploying Airflow Operator using manifests
+
+Installing the airflow operator creates the 'airflowop-system' namespace and creates stateful set in that namespace for the operator.
+
+```bash
+# deploy the airflow operator
+$ make deploy
 
 # follow airflow controller logs in a terminal session
-$ kubectl logs -f airflow-controller-manager-0 -n airflow-system
+$ kubectl logs -f airflowop-controller-manager-0 -n airflowop-system
+
+# to undeploy
+$ #make undeploy
 ```
 
 ## Create Airflow clusters using samples

@@ -20,7 +20,7 @@ The Airflow Operator is still under active development and has not been extensiv
 
 ## Get Started
 
-[One Click Deployment](https://pantheon.corp.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/)
+[One Click Deployment](https://console.cloud.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/)
 
 Get started quickly with the Airflow Operator using the [Quick Start Guide](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/quickstart.md)
 

@@ -14,18 +14,42 @@ limitations under the License.
 package component
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager"
+	"time"
 )
 
 // Handle is an interface for operating on logical Components of a CR
 type Handle interface {
-	DependantResources(rsrc interface{}) *resource.ObjectBag
-	ExpectedResources(rsrc interface{}, labels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error)
-	Observables(scheme *runtime.Scheme, rsrc interface{}, labels map[string]string, expected *resource.ObjectBag) []resource.Observable
-	Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error)
-	Differs(expected metav1.Object, observed metav1.Object) bool
-	UpdateComponentStatus(rsrc, status interface{}, reconciled *resource.ObjectBag, err error)
-	Finalize(rsrc, status interface{}, observed *resource.ObjectBag) error
+	ExpectedResources(rsrc interface{}, labels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error)
+}
+
+// StatusInterface - interface to update compoennt status
+type StatusInterface interface {
+	UpdateComponentStatus(rsrc, status interface{}, reconciled *resource.Bag, err error) time.Duration
+}
+
+// FinalizeInterface - finalize component
+type FinalizeInterface interface {
+	Finalize(rsrc, status interface{}, observed *resource.Bag) error
+}
+
+// DiffersInterface - call differs
+type DiffersInterface interface {
+	Differs(expected resource.Item, observed resource.Item) bool
+}
+
+// DependentResourcesInterface - get dependent resources
+type DependentResourcesInterface interface {
+	DependentResources(rsrc interface{}) *resource.Bag
+}
+
+// MutateInterface - interface to mutate objects
+type MutateInterface interface {
+	Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error)
+}
+
+// ObservablesInterface - interface to get observables
+type ObservablesInterface interface {
+	Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}, labels map[string]string, expected *resource.Bag) []resource.Observable
 }

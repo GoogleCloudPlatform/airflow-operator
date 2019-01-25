@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/kubesdk/pkg/component"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 )
 
 // Application obj to attach methods
@@ -55,18 +56,24 @@ func (a *Application) AddLabels(value component.KVMap) *Application {
 // Observable returns resource object
 func (a *Application) Observable() *resource.Observable {
 	return &resource.Observable{
-		Obj:     &a.Application,
-		ObjList: &app.ApplicationList{},
-		Labels:  a.GetLabels(),
+		Obj: k8s.Observable{
+			Obj:     &a.Application,
+			ObjList: &app.ApplicationList{},
+			Labels:  a.GetLabels(),
+		},
+		Type: k8s.Type,
 	}
 }
 
-// Object returns resource object
-func (a *Application) Object() *resource.Object {
-	return &resource.Object{
+// Item returns resource object
+func (a *Application) Item() *resource.Item {
+	return &resource.Item{
 		Lifecycle: resource.LifecycleManaged,
-		Obj:       &a.Application,
-		ObjList:   &app.ApplicationList{},
+		Type:      k8s.Type,
+		Obj: &k8s.Object{
+			Obj:     &a.Application,
+			ObjList: &app.ApplicationList{},
+		},
 	}
 }
 
@@ -76,10 +83,11 @@ func AddToScheme(sb *runtime.SchemeBuilder) {
 }
 
 // SetComponentGK attaches component GK to Application object
-func (a *Application) SetComponentGK(bag *resource.ObjectBag) *Application {
+func (a *Application) SetComponentGK(bag *resource.Bag) *Application {
 	a.Spec.ComponentGroupKinds = []metav1.GroupKind{}
 	gkmap := map[schema.GroupKind]struct{}{}
-	for _, obj := range bag.Items() {
+	for _, item := range bag.ByType(k8s.Type) {
+		obj := item.Obj.(*k8s.Object)
 		if obj.ObjList != nil {
 			ro := obj.Obj.(runtime.Object)
 			gk := ro.GetObjectKind().GroupVersionKind().GroupKind()

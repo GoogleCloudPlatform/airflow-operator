@@ -23,16 +23,23 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	reconciler "sigs.k8s.io/kubesdk/pkg/genericreconciler"
 	test "sigs.k8s.io/kubesdk/pkg/genericreconciler/v1alpha1"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 )
 
+var AddToSchemes runtime.SchemeBuilder
 var _ = Describe("Reconciler", func() {
 	cl := fake.NewFakeClient()
-	gr := reconciler.Reconciler{Client: cl}
+	AddToSchemes.AddToScheme(scheme.Scheme)
+	gr := reconciler.Reconciler{}
+	km := k8s.NewRsrcManager().WithName("basek8s").WithClient(cl).WithScheme(scheme.Scheme)
+	gr.RsrcMgr.Add(k8s.Type, km)
 	m1 := reconciler.KVmap{"k1": "v1"}
 	m2 := reconciler.KVmap{"k2": "v2"}
 	m3 := reconciler.KVmap{"k3": "v3"}
@@ -68,8 +75,8 @@ var _ = Describe("Reconciler", func() {
 				Name:      "crA",
 				Namespace: "ns1",
 			}
-			err := gr.ReconcileCR(namespacedName, &test.Foo{})
-			Expect(err).NotTo(BeNil())
+			_, err := gr.ReconcileCR(namespacedName, &test.Foo{})
+			Expect(err).To(BeNil())
 		})
 		It("should be able to Reconcile custom resource", func() {
 			By("Getting a deployment")
@@ -86,7 +93,7 @@ var _ = Describe("Reconciler", func() {
 				Name:      "crA",
 				Namespace: "ns1",
 			}
-			err := gr.ReconcileCR(namespacedName, &test.Foo{})
+			_, err := gr.ReconcileCR(namespacedName, &test.Foo{})
 			Expect(err).To(BeNil())
 			sts := &appsv1.Deployment{}
 			err = cl.Get(nil, types.NamespacedName{Name: "crA-deploy", Namespace: "ns1"}, sts)

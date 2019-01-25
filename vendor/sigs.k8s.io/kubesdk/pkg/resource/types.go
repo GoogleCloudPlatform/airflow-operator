@@ -14,7 +14,6 @@ limitations under the License.
 package resource
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -24,38 +23,38 @@ const (
 	LifecycleReferred = "referred"
 )
 
-// ObjectBag abstracts dealing with group of objects
+// Bag abstracts dealing with group of objects
 // For now it is a simple list
-type ObjectBag struct {
-	objects []Object
+type Bag struct {
+	items []Item
 }
 
-// Object is a container to capture the k8s resource info to be used by controller
-type Object struct {
+// ObjectInterface -
+type ObjectInterface interface {
+	GetName() string
+	IsSameAs(interface{}) bool
+	SetOwnerReferences([]metav1.OwnerReference)
+}
+
+// Item is a container to capture the k8s resource info to be used by controller
+type Item struct {
 	// Lifecycle can be: managed, reference
 	Lifecycle string
-	// Obj refers to the resource object  can be: sts, service, secret, pvc, ..
-	Obj metav1.Object
-	// ObjList refers to the list of resource objects
-	ObjList metav1.ListInterface
+	// Type - object type
+	Type string
+	// Obj -  object
+	Obj ObjectInterface
+	// Delete - marker for deletion
+	Delete bool
 }
 
 // Observable captures the k8s resource info and selector to fetch child resources
 type Observable struct {
-	// ObjList refers to the list of resource objects
-	ObjList metav1.ListInterface
-	// Obj refers to the resource object  can be: sts, service, secret, pvc, ..
-	Obj metav1.Object
-	// Labels list of labels
-	Labels map[string]string
-	// Typemeta - needed for go test fake client
-	Type metav1.TypeMeta
+	// Type - object type
+	Type string
+	// Obj - object
+	Obj interface{}
 }
 
-// LocalObjectReference with validation
-type LocalObjectReference struct {
-	corev1.LocalObjectReference `json:",inline"`
-}
-
-// GetObjectFn is a type for any function that returns resource info
-type GetObjectFn func(interface{}) (*Object, error)
+// GetItemFn is a type for any function that returns resource info
+type GetItemFn func(interface{}) (*Item, error)

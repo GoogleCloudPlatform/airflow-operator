@@ -113,7 +113,6 @@ func (in *Meta) DeepCopyInto(out *Meta) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	in.ComponentList.DeepCopyInto(&out.ComponentList)
 	return
 }
 

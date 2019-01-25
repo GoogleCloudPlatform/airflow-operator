@@ -14,11 +14,10 @@ limitations under the License.
 package genericreconciler
 
 import (
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cr "sigs.k8s.io/kubesdk/pkg/customresource"
+	rm "sigs.k8s.io/kubesdk/pkg/resource/manager"
 )
 
 var _ reconcile.Reconciler = &Reconciler{}
@@ -26,10 +25,9 @@ var _ reconcile.Reconciler = &Reconciler{}
 // Reconciler defines fields needed for all airflow controllers
 // +k8s:deepcopy-gen=false
 type Reconciler struct {
-	client.Client
-	Scheme  *runtime.Scheme
 	Handle  cr.Handle
 	Manager manager.Manager
+	RsrcMgr rm.ResourceManager
 }
 
 // ReconcilerConfig config defines reconciler parameters

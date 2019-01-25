@@ -27,11 +27,12 @@ const (
 	// Qualified => functionally tested
 	Qualified = "Qualified"
 	// Settled => observed generation == generation + settled means controller is done acting functionally tested
-	Settled = "Settled"
 	// Cleanup => it is set to track finalizer failures
 	Cleanup = "Cleanup"
 	// Error => last recorded error
 	Error = "Error"
+
+	Settled = "Settled"
 
 	ReasonInit = "Init"
 )
@@ -87,9 +88,6 @@ type Meta struct {
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	Conditions []Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,10,rep,name=conditions"`
-	// Resources embeds a list of object statuses
-	// +optional
-	ComponentList `json:",inline,omitempty"`
 }
 
 // ComponentList is a generic status holder for the top level resource

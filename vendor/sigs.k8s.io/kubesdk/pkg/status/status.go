@@ -19,6 +19,8 @@ import (
 	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 )
 
 // Constants defining labels
@@ -59,36 +61,44 @@ func (s *Pdb) update(rsrc *policyv1.PodDisruptionBudget) string {
 }
 
 // ResetComponentList - reset component list objects
-func (m *Meta) ResetComponentList() {
-	m.ComponentList.Objects = []ObjectStatus{}
+func (cm *ComponentMeta) ResetComponentList() {
+	cm.ComponentList.Objects = []ObjectStatus{}
 }
 
 // UpdateStatus the component status
-func (m *Meta) UpdateStatus(rsrcs []metav1.Object, err error) {
+func (cm *ComponentMeta) UpdateStatus(items []resource.Item) bool {
 	var ready = true
-	for _, r := range rsrcs {
+	for _, item := range items {
+		r := item.Obj.(*k8s.Object)
 		os := ObjectStatus{}
-		os.update(r)
-		switch r.(type) {
+		os.update(r.Obj)
+		switch r.Obj.(type) {
 		case *appsv1.StatefulSet:
 			os.ExtendedStatus.STS = &Statefulset{}
-			os.Status = os.ExtendedStatus.STS.update(r.(*appsv1.StatefulSet))
+			os.Status = os.ExtendedStatus.STS.update(r.Obj.(*appsv1.StatefulSet))
 		case *policyv1.PodDisruptionBudget:
 			os.ExtendedStatus.PDB = &Pdb{}
-			os.Status = os.ExtendedStatus.PDB.update(r.(*policyv1.PodDisruptionBudget))
+			os.Status = os.ExtendedStatus.PDB.update(r.Obj.(*policyv1.PodDisruptionBudget))
 		}
-		m.ComponentList.Objects = append(m.ComponentList.Objects, os)
+		cm.ComponentList.Objects = append(cm.ComponentList.Objects, os)
 	}
-	for _, os := range m.ComponentList.Objects {
+	for _, os := range cm.ComponentList.Objects {
 		if os.Status != StatusReady {
 			ready = false
 		}
 	}
 
-	if ready {
-		m.Ready("ComponentsReady", "all components ready")
-	} else {
-		m.NotReady("ComponentsNotReady", "some components not ready")
+	return ready
+}
+
+// UpdateStatus the component status
+func (m *Meta) UpdateStatus(componentready *bool, err error) {
+	if componentready != nil {
+		if *componentready {
+			m.Ready("ComponentsReady", "all components ready")
+		} else {
+			m.NotReady("ComponentsNotReady", "some components not ready")
+		}
 	}
 	if err != nil {
 		m.SetCondition(Error, "ErrorSeen", err.Error())

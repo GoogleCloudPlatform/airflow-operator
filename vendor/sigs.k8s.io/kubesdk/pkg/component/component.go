@@ -102,8 +102,9 @@ func (c *Component) Finalize(status interface{}, observed *resource.Bag) error {
 	if s, ok := c.Handle.(FinalizeInterface); ok {
 		return s.Finalize(c.CR, status, observed)
 	}
-	r := c.CR.(metav1.Object)
-	finalizer.RemoveStandard(r)
+	if r, ok := c.CR.(metav1.Object); ok {
+		finalizer.RemoveStandard(r)
+	}
 	return nil
 }
 

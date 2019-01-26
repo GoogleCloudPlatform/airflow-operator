@@ -1,5 +1,4 @@
-IMG ?= controller:latest
-ifdef GCP
+ifndef NOTGCP
   PROJECT_ID := $(shell gcloud config get-value project)
   ZONE := $(shell gcloud config get-value compute/zone)
   SHORT_SHA := $(shell git rev-parse --short HEAD)
@@ -34,8 +33,7 @@ install: manifests
 	kubectl apply -f hack/appcrd.yaml
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
-	kubectl apply -f config/crds
+deploy: install
 	kustomize build config/default | kubectl apply -f -
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
@@ -58,6 +56,7 @@ vet:
 
 # Generate code
 generate:
+	echo ${IMG}
 	go generate ./pkg/... ./cmd/...
 
 # Build the docker image

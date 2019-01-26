@@ -472,8 +472,8 @@ func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconci
 
 // ------------------------------ Airflow UI ---------------------------------------
 
-// DependantResources - return dependant resources
-func (s *AirflowUISpec) DependantResources(rsrc interface{}) *resource.Bag {
+// DependentResources - return dependant resources
+func (s *AirflowUISpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	return r.dependantResources()
 }
@@ -813,8 +813,8 @@ func (s *SchedulerSpec) sts(v interface{}) (*resource.Item, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *SchedulerSpec) DependantResources(rsrc interface{}) *resource.Bag {
+// DependentResources - return dependant resources
+func (s *SchedulerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	resources := r.dependantResources()
 	if r.Spec.Executor == ExecutorK8s {
@@ -919,8 +919,8 @@ func (s *WorkerSpec) sts(v interface{}) (*resource.Item, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *WorkerSpec) DependantResources(rsrc interface{}) *resource.Bag {
+// DependentResources - return dependant resources
+func (s *WorkerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	return r.dependantResources()
 }
@@ -967,8 +967,8 @@ func (s *WorkerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconcile
 
 // ------------------------------ Flower ---------------------------------------
 
-// DependantResources - return dependant resources
-func (s *FlowerSpec) DependantResources(rsrc interface{}) *resource.Bag {
+// DependentResources - return dependant resources
+func (s *FlowerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	return r.dependantResources()
 }

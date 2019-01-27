@@ -14,9 +14,6 @@ $ git clone git@github.com:GoogleCloudPlatform/airflow-operator.git
 # build
 make build
 
-# test
-make test
-
 # run locally
 make run
 ```
@@ -48,3 +45,27 @@ make docker-push NOTGCP=true
 make deploy
 ```
 
+
+## Tests
+
+### Running local tests
+Runs unit-tests locally
+
+```bash
+make test
+```
+
+### Running e2e tests
+Before running e2e tests ensure that the desrired version is running on the cluster or locally.
+
+```bash
+# Start controller in cluster:
+#   make docker-push
+#   make deploy
+# OR locally:
+#   make install
+#   make run
+# and then run the tests
+
+make e2e-test
+```

@@ -71,4 +71,5 @@ docker-push: docker-build
 
 
 e2e-test:
-	go test -v -timeout 20m test/e2e/escluster/escluster_test.go --namespace es-operator-system
+	go test -v -timeout 20m test/e2e/base_test.go --namespace airflowop-system
+	go test -v -timeout 20m test/e2e/cluster_test.go --namespace airflowop-system

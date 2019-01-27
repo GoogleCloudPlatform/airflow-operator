@@ -39,8 +39,6 @@ spec:
         {{end}}
       containers:
       - name: postgres
-        args:
-        - --explicit-defaults-for-timestamp=ON
         env:
         - name: POSTGRES_DB
           value: testdb

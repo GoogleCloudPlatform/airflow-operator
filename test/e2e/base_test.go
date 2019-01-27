@@ -83,17 +83,15 @@ var _ = Describe(CRName+" controller tests", func() {
 		ctx.WithTimeout(100).CheckCR(isBaseReady)
 	})
 
-	/*
-		It("creating a "+CRName+" with postgres", func() {
-			ctx = f.NewContext().WithCR(airflowBase(SampleDir + "postgres-celery/base.yaml"))
-			cr := ctx.CR.(*v1alpha1.AirflowBase)
-			By("creating a new " + CRName + ": " + cr.Name)
-			ctx.CreateCR()
-			ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-postgres", 1, 1)
-			ctx.WithTimeout(10).CheckService(cr.Name+"-sql", map[string]int32{"postgres": 5432})
-			//ctx.WithTimeout(10).CheckSecret(name)
-			ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-nfs", 1, 1)
-			ctx.WithTimeout(100).CheckCR(isBaseReady)
-		})
-	*/
+	It("creating a "+CRName+" with postgres", func() {
+		ctx = f.NewContext().WithCR(airflowBase(SampleDir + "postgres-celery/base.yaml"))
+		cr := ctx.CR.(*v1alpha1.AirflowBase)
+		By("creating a new " + CRName + ": " + cr.Name)
+		ctx.CreateCR()
+		ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-postgres", 1, 1)
+		ctx.WithTimeout(10).CheckService(cr.Name+"-sql", map[string]int32{"postgres": 5432})
+		//ctx.WithTimeout(10).CheckSecret(name)
+		ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-nfs", 1, 1)
+		ctx.WithTimeout(100).CheckCR(isBaseReady)
+	})
 })

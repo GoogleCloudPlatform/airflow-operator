@@ -59,3 +59,8 @@ func Remove(o metav1.Object, new string) {
 func EnsureStandard(o metav1.Object) {
 	Add(o, Cleanup)
 }
+
+// RemoveStandard removes standard finalizers
+func RemoveStandard(o metav1.Object) {
+	Remove(o, Cleanup)
+}

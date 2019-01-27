@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -31,6 +33,7 @@ var _ = Describe("Status", func() {
 	var replicas int32 = 3
 	type testStatus struct {
 		status.Meta
+		status.ComponentMeta
 	}
 	var condition1 status.ConditionType = "condition1"
 	var cstatusT corev1.ConditionStatus = corev1.ConditionTrue
@@ -38,66 +41,91 @@ var _ = Describe("Status", func() {
 	var cstatusU corev1.ConditionStatus = corev1.ConditionUnknown
 
 	var teststatus testStatus
-	resources := []metav1.Object{
-		&corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "svcOK",
-				Namespace: "default",
-				SelfLink:  "ignorethislink",
-			},
-			Status: corev1.ServiceStatus{},
-		},
-		&appsv1.StatefulSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "stsOK",
-				Namespace: "default",
-				SelfLink:  "ignorethislink",
-			},
-			Spec: appsv1.StatefulSetSpec{
-				Replicas: &replicas,
-			},
-			Status: appsv1.StatefulSetStatus{
-				Replicas:        3,
-				ReadyReplicas:   3,
-				CurrentReplicas: 3,
+	resources := []resource.Item{
+		{
+			Type: k8s.Type,
+			Obj: &k8s.Object{
+				Obj: &corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "svcOK",
+						Namespace: "default",
+						SelfLink:  "ignorethislink",
+					},
+					Status: corev1.ServiceStatus{},
+				},
 			},
 		},
-		&policyv1.PodDisruptionBudget{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pdbOK",
-				Namespace: "default",
-				SelfLink:  "ignorethislink",
+		{
+			Type: k8s.Type,
+			Obj: &k8s.Object{
+				Obj: &appsv1.StatefulSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "stsOK",
+						Namespace: "default",
+						SelfLink:  "ignorethislink",
+					},
+					Spec: appsv1.StatefulSetSpec{
+						Replicas: &replicas,
+					},
+					Status: appsv1.StatefulSetStatus{
+						Replicas:        3,
+						ReadyReplicas:   3,
+						CurrentReplicas: 3,
+					},
+				},
 			},
-			Status: policyv1.PodDisruptionBudgetStatus{
-				CurrentHealthy: 3,
-				DesiredHealthy: 3,
+		},
+		{
+			Type: k8s.Type,
+			Obj: &k8s.Object{
+				Obj: &policyv1.PodDisruptionBudget{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pdbOK",
+						Namespace: "default",
+						SelfLink:  "ignorethislink",
+					},
+					Status: policyv1.PodDisruptionBudgetStatus{
+						CurrentHealthy: 3,
+						DesiredHealthy: 3,
+					},
+				},
 			},
 		},
 	}
-	stsNotOk := appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "stsnok",
-			Namespace: "default",
-			SelfLink:  "ignorethislink",
-		},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: &replicas,
-		},
-		Status: appsv1.StatefulSetStatus{
-			Replicas:        3,
-			ReadyReplicas:   2,
-			CurrentReplicas: 3,
+	stsNotOk := resource.Item{
+		Type: k8s.Type,
+		Obj: &k8s.Object{
+			Obj: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "stsnok",
+					Namespace: "default",
+					SelfLink:  "ignorethislink",
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: &replicas,
+				},
+				Status: appsv1.StatefulSetStatus{
+					Replicas:        3,
+					ReadyReplicas:   2,
+					CurrentReplicas: 3,
+				},
+			},
 		},
 	}
-	pdbNotOk := policyv1.PodDisruptionBudget{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pdbnok",
-			Namespace: "default",
-			SelfLink:  "ignorethislink",
-		},
-		Status: policyv1.PodDisruptionBudgetStatus{
-			CurrentHealthy: 2,
-			DesiredHealthy: 3,
+	pdbNotOk := resource.Item{
+		Type: k8s.Type,
+		Obj: &k8s.Object{
+			Obj: &policyv1.PodDisruptionBudget{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pdbnok",
+					Namespace: "default",
+					SelfLink:  "ignorethislink",
+				},
+				Status: policyv1.PodDisruptionBudgetStatus{
+					CurrentHealthy: 2,
+					DesiredHealthy: 3,
+				},
+			},
 		},
 	}
 
@@ -107,17 +135,20 @@ var _ = Describe("Status", func() {
 	Describe("ResourceStatus", func() {
 		It("Getting status from all ok reosurces", func(done Done) {
 			teststatus = testStatus{}
-			teststatus.Meta.UpdateStatus(resources, nil)
+			ready := teststatus.ComponentMeta.UpdateStatus(resources)
+			teststatus.Meta.UpdateStatus(&ready, nil)
 			Expect(teststatus.Meta.IsReady()).To(Equal(true))
 			close(done)
 		})
 		It("Getting status from all not ready sts is InProgress", func(done Done) {
-			teststatus.Meta.UpdateStatus(append(resources, &stsNotOk), nil)
+			ready := teststatus.ComponentMeta.UpdateStatus(append(resources, stsNotOk))
+			teststatus.Meta.UpdateStatus(&ready, nil)
 			Expect(teststatus.Meta.IsReady()).To(Equal(false))
 			close(done)
 		})
 		It("Getting status from all not ready pdb is InProgress", func(done Done) {
-			teststatus.Meta.UpdateStatus(append(resources, &pdbNotOk), nil)
+			ready := teststatus.ComponentMeta.UpdateStatus(append(resources, pdbNotOk))
+			teststatus.Meta.UpdateStatus(&ready, nil)
 			Expect(teststatus.Meta.IsReady()).To(Equal(false))
 			close(done)
 		})

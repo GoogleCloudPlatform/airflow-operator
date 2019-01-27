@@ -151,6 +151,7 @@ func (in *AirflowBaseSpec) DeepCopy() *AirflowBaseSpec {
 func (in *AirflowBaseStatus) DeepCopyInto(out *AirflowBaseStatus) {
 	*out = *in
 	in.Meta.DeepCopyInto(&out.Meta)
+	in.ComponentMeta.DeepCopyInto(&out.ComponentMeta)
 	return
 }
 
@@ -307,6 +308,7 @@ func (in *AirflowClusterSpec) DeepCopy() *AirflowClusterSpec {
 func (in *AirflowClusterStatus) DeepCopyInto(out *AirflowClusterStatus) {
 	*out = *in
 	in.Meta.DeepCopyInto(&out.Meta)
+	in.ComponentMeta.DeepCopyInto(&out.ComponentMeta)
 	return
 }
 

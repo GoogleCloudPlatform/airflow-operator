@@ -21,7 +21,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"log"
@@ -29,6 +28,8 @@ import (
 	"sigs.k8s.io/kubesdk/pkg/component"
 	cr "sigs.k8s.io/kubesdk/pkg/customresource"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -71,33 +72,41 @@ type FooStatus struct {
 }
 
 // ExpectedResources - returns resources
-func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregate *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregate *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*Foo)
 	n := r.ObjectMeta.Name
 	ns := r.ObjectMeta.Namespace
 	resources.Add(
-		[]resource.Object{
+		[]resource.Item{
 			{
 				Lifecycle: resource.LifecycleManaged,
-				Obj: &appsv1.Deployment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      n + "-deploy",
-						Namespace: ns,
-						Labels:    rsrclabels,
+				Type:      k8s.Type,
+				Obj: &k8s.Object{
+					ObjList: &appsv1.DeploymentList{},
+					Obj: &appsv1.Deployment{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      n + "-deploy",
+							Namespace: ns,
+							Labels:    rsrclabels,
+						},
 					},
 				},
 			},
 			{
 				Lifecycle: resource.LifecycleManaged,
-				Obj: &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      n + "-cm",
-						Namespace: ns,
-						Labels:    rsrclabels,
-					},
-					Data: map[string]string{
-						"test-key": "test-value",
+				Type:      k8s.Type,
+				Obj: &k8s.Object{
+					ObjList: &corev1.ConfigMapList{},
+					Obj: &corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      n + "-cm",
+							Namespace: ns,
+							Labels:    rsrclabels,
+						},
+						Data: map[string]string{
+							"test-key": "test-value",
+						},
 					},
 				},
 			},
@@ -107,17 +116,23 @@ func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]stri
 }
 
 // Observables - return selectors
-func (s *FooSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
+func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}, rsrclabels map[string]string, expected *resource.Bag) []resource.Observable {
 	return []resource.Observable{
 		{
-			ObjList: &appsv1.DeploymentList{},
-			Labels:  rsrclabels,
-			Type:    metav1.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+			Type: k8s.Type,
+			Obj: &k8s.Observable{
+				ObjList: &appsv1.DeploymentList{},
+				Labels:  rsrclabels,
+				Type:    metav1.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"},
+			},
 		},
 		{
-			ObjList: &corev1.ConfigMapList{},
-			Labels:  rsrclabels,
-			Type:    metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
+			Type: k8s.Type,
+			Obj: &k8s.Observable{
+				ObjList: &corev1.ConfigMapList{},
+				Labels:  rsrclabels,
+				Type:    metav1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
+			},
 		},
 	}
 }
@@ -128,7 +143,7 @@ func (s *FooSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
 }
 
 // UpdateComponentStatus - update status block
-func (s *FooSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *FooSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) {
 	rsrcstatus := statusi.(*FooStatus)
 	rsrcstatus.Component = "base " + status.StatusReady
 }
@@ -177,12 +192,12 @@ func (r *Foo) Components() []component.Component {
 }
 
 // DependantResources - return deps
-func (s *FooSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
+func (s *FooSpec) DependantResources(rsrc interface{}) *resource.Bag {
+	return &resource.Bag{}
 }
 
 // Mutate - mutate objects
-func (s *FooSpec) Mutate(rsrc interface{}, labels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (s *FooSpec) Mutate(rsrc interface{}, labels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
 	return expected, nil
 }
 
@@ -208,7 +223,7 @@ func (r *Foo) NewStatus() interface{} {
 }
 
 // Finalize function
-func (s *FooSpec) Finalize(rsrc, status interface{}, observed *resource.ObjectBag) error {
+func (s *FooSpec) Finalize(rsrc, status interface{}, observed *resource.Bag) error {
 	return nil
 }
 

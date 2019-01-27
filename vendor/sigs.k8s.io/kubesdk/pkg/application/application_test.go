@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/kubesdk/pkg/application"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 )
 
 var _ = Describe("Application", func() {
@@ -36,39 +37,45 @@ var _ = Describe("Application", func() {
 		"k2": "v2",
 		"k3": "v3",
 	}
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+	var resources *resource.Bag = new(resource.Bag)
 	resources.Add(
-		[]resource.Object{
+		[]resource.Item{
 			{
 				Lifecycle: resource.LifecycleManaged,
-				ObjList:   &appsv1.DeploymentList{},
-				Obj: &appsv1.Deployment{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       "k3",
-						APIVersion: "v4",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "n-deploy",
-						Namespace: "ns",
-						Labels:    labels,
+				Type:      k8s.Type,
+				Obj: &k8s.Object{
+					ObjList: &appsv1.DeploymentList{},
+					Obj: &appsv1.Deployment{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       "k3",
+							APIVersion: "v4",
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "n-deploy",
+							Namespace: "ns",
+							Labels:    labels,
+						},
 					},
 				},
 			},
 			{
 				Lifecycle: resource.LifecycleManaged,
-				ObjList:   &corev1.ConfigMapList{},
-				Obj: &corev1.ConfigMap{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       "k1",
-						APIVersion: "v2",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "n-cm",
-						Namespace: "ns",
-						Labels:    labels,
-					},
-					Data: map[string]string{
-						"test-key": "test-value",
+				Type:      k8s.Type,
+				Obj: &k8s.Object{
+					ObjList: &corev1.ConfigMapList{},
+					Obj: &corev1.ConfigMap{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       "k1",
+							APIVersion: "v2",
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "n-cm",
+							Namespace: "ns",
+							Labels:    labels,
+						},
+						Data: map[string]string{
+							"test-key": "test-value",
+						},
 					},
 				},
 			},

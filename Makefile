@@ -1,6 +1,11 @@
+ifndef NOTGCP
+  PROJECT_ID := $(shell gcloud config get-value project)
+  ZONE := $(shell gcloud config get-value compute/zone)
+  SHORT_SHA := $(shell git rev-parse --short HEAD)
+  IMG ?= gcr.io/${PROJECT_ID}/airflow-operator:${SHORT_SHA}
+endif
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
 
 all: test manager
 
@@ -25,16 +30,17 @@ debug: generate fmt vet
 # Install CRDs into a cluster
 install: manifests
 	kubectl apply -f config/crds
+	kubectl apply -f hack/appcrd.yaml
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
-	kubectl apply -f config/crds
+deploy: install
 	kustomize build config/default | kubectl apply -f -
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 undeploy: manifests
 	kustomize build config/default | kubectl delete -f -
-	kubectl delete -f config/crds
+	kubectl delete -f config/crds || true
+	kubectl delete -f hack/appcrd.yaml || true
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests:
@@ -50,6 +56,7 @@ vet:
 
 # Generate code
 generate:
+	echo ${IMG}
 	go generate ./pkg/... ./cmd/...
 
 # Build the docker image
@@ -59,5 +66,10 @@ docker-build: test
 	sed -i'' -e 's@image: .*@image: '"${IMG}"'@' ./config/default/manager_image_patch.yaml
 
 # Push the docker image
-docker-push:
+docker-push: docker-build
 	docker push ${IMG}
+
+
+e2e-test:
+	go test -v -timeout 20m test/e2e/base_test.go --namespace airflowop-system
+	go test -v -timeout 20m test/e2e/cluster_test.go --namespace airflowop-system

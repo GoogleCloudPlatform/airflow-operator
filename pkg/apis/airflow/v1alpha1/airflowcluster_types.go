@@ -287,7 +287,8 @@ type SchedulerStatus struct {
 
 // AirflowClusterStatus defines the observed state of AirflowCluster
 type AirflowClusterStatus struct {
-	status.Meta `json:",inline"`
+	status.Meta          `json:",inline"`
+	status.ComponentMeta `json:",inline"`
 }
 
 // +genclient

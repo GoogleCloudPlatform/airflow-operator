@@ -22,13 +22,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1beta1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"math/rand"
 	"sigs.k8s.io/kubesdk/pkg/application"
 	"sigs.k8s.io/kubesdk/pkg/component"
-	"sigs.k8s.io/kubesdk/pkg/finalizer"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 	"strconv"
 	"time"
 )
@@ -127,9 +125,9 @@ func rsrcName(name string, component string, suffix string) string {
 	return name + "-" + component + suffix
 }
 
-func (r *AirflowCluster) dependantResources() *resource.ObjectBag {
-	rsrc := &resource.ObjectBag{}
-	rsrc.Add(resource.ReferredObject(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace))
+func (r *AirflowCluster) dependantResources() *resource.Bag {
+	rsrc := &resource.Bag{}
+	rsrc.Add(k8s.ReferredItem(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace))
 	return rsrc
 }
 
@@ -311,35 +309,35 @@ type commonTmplValue struct {
 	Ports       map[string]string
 	Secret      map[string]string
 	PDBMinAvail string
-	Expected    *resource.ObjectBag
+	Expected    *resource.Bag
 	SQLConn     string
 }
 
-func tmplSecret(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"secret.yaml", v, &corev1.SecretList{})
+func tmplSecret(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"secret.yaml", v, &corev1.SecretList{})
 }
 
-func tmplServiceaccount(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"serviceaccount.yaml", v, &corev1.ServiceAccountList{})
+func tmplServiceaccount(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"serviceaccount.yaml", v, &corev1.ServiceAccountList{})
 }
 
-func tmplRolebinding(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"rolebinding.yaml", v, &rbacv1.RoleBindingList{})
+func tmplRolebinding(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"rolebinding.yaml", v, &rbacv1.RoleBindingList{})
 }
 
-func tmplsvc(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"svc.yaml", v, &corev1.ServiceList{})
+func tmplsvc(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"svc.yaml", v, &corev1.ServiceList{})
 }
 
-func tmplpodDisruption(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"pdb.yaml", v, &policyv1.PodDisruptionBudgetList{})
+func tmplpodDisruption(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"pdb.yaml", v, &policyv1.PodDisruptionBudgetList{})
 }
 
-func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *MySQLSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"mysql-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"mysql-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.MySQL.Resources
 		if r.Base.Spec.MySQL.VolumeClaimTemplate != nil {
 			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.MySQL.VolumeClaimTemplate}
@@ -348,28 +346,11 @@ func (s *MySQLSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *MySQLSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
-// Mutate - mutate expected
-func (s *MySQLSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *MySQLSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowBase)
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentMySQL, ""),
@@ -387,7 +368,7 @@ func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 		PDBMinAvail: "100%",
 	}
 
-	for _, fn := range []resource.GetObjectFn{s.sts, tmplsvc, tmplpodDisruption, tmplSecret} {
+	for _, fn := range []resource.GetItemFn{s.sts, tmplsvc, tmplpodDisruption, tmplSecret} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -397,50 +378,42 @@ func (s *MySQLSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *MySQLSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	oo := resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-	return oo
-}
-
 // differs returns true if the resource needs to be updated
-func differs(expected metav1.Object, observed metav1.Object) bool {
-	switch expected.(type) {
+func differs(expected resource.Item, observed resource.Item) bool {
+	switch expected.Obj.(*k8s.Object).Obj.(type) {
 	case *corev1.ServiceAccount:
 		// Dont update a SA
 		return false
 	case *corev1.Secret:
 		// Dont update a secret
 		return false
-	case *corev1.Service:
-		expected.SetResourceVersion(observed.GetResourceVersion())
-		expected.(*corev1.Service).Spec.ClusterIP = observed.(*corev1.Service).Spec.ClusterIP
-	case *policyv1.PodDisruptionBudget:
-		expected.SetResourceVersion(observed.GetResourceVersion())
 	}
 	return true
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *MySQLSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *MySQLSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowBaseStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
 // ------------------------------ POSTGRES  ---------------------------------------
 
-func (s *PostgresSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *PostgresSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"postgres-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"postgres-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Postgres.Resources
 		if r.Base.Spec.Postgres.VolumeClaimTemplate != nil {
 			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Postgres.VolumeClaimTemplate}
@@ -449,28 +422,11 @@ func (s *PostgresSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *PostgresSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
-// Mutate - mutate expected
-func (s *PostgresSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *PostgresSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowBase)
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentPostgres, ""),
@@ -488,7 +444,7 @@ func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 		PDBMinAvail: "100%",
 	}
 
-	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, tmplSecret, s.sts} {
+	for _, fn := range []resource.GetItemFn{tmplsvc, tmplpodDisruption, tmplSecret, s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -498,49 +454,35 @@ func (s *PostgresSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *PostgresSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // Differs returns true if the resource needs to be updated
-func (s *PostgresSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *PostgresSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowBaseStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
 // ------------------------------ Airflow UI ---------------------------------------
 
-// DependantResources - return dependant resources
-func (s *AirflowUISpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+// DependentResources - return dependant resources
+func (s *AirflowUISpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	return r.dependantResources()
 }
 
-// Mutate - mutate expected
-func (s *AirflowUISpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *AirflowUISpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowCluster)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
-	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentUI, ""),
@@ -556,7 +498,7 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		},
 	}
 
-	for _, fn := range []resource.GetObjectFn{s.sts, tmplSecret} {
+	for _, fn := range []resource.GetItemFn{s.sts, tmplSecret} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -567,29 +509,27 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *AirflowUISpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // Differs returns true if the resource needs to be updated
-func (s *AirflowUISpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *AirflowUISpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowClusterStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
-func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
+func (s *AirflowUISpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"ui-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"ui-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.UI.Resources
 		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
@@ -604,26 +544,9 @@ func (s *AirflowUISpec) sts(v interface{}) (*resource.Object, error) {
 
 // ------------------------------ NFSStoreSpec ---------------------------------------
 
-// DependantResources - return dependant resources
-func (s *NFSStoreSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
-// Mutate - mutate expected
-func (s *NFSStoreSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *NFSStoreSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowBase)
 	var ngdata = commonTmplValue{
 		Name:        rsrcName(r.Name, ValueAirflowComponentNFS, ""),
@@ -636,7 +559,7 @@ func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 		PDBMinAvail: "100%",
 	}
 
-	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, s.sts} {
+	for _, fn := range []resource.GetItemFn{tmplsvc, tmplpodDisruption, s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -646,16 +569,11 @@ func (s *NFSStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *NFSStoreSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
-func (s *NFSStoreSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *NFSStoreSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"nfs-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"nfs-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Storage.Resources
 		if r.Base.Spec.Storage.Volume != nil {
 			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Storage.Volume}
@@ -665,49 +583,35 @@ func (s *NFSStoreSpec) sts(v interface{}) (*resource.Object, error) {
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *NFSStoreSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *NFSStoreSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowBaseStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
 // ------------------------------ SQLProxy ---------------------------------------
 
-func (s *SQLProxySpec) sts(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"sqlproxy-sts.yaml", v, &appsv1.StatefulSetList{})
-}
-
-// DependantResources - return dependant resources
-func (s *SQLProxySpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
-// Mutate - mutate expected
-func (s *SQLProxySpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *SQLProxySpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
+func (s *SQLProxySpec) sts(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"sqlproxy-sts.yaml", v, &appsv1.StatefulSetList{})
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowBase)
 	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
-	resources.Add(resource.ReferredObject(&corev1.Secret{}, name, r.Namespace))
+	resources.Add(k8s.ReferredItem(&corev1.Secret{}, name, r.Namespace))
 
 	var ngdata = commonTmplValue{
 		Name:      rsrcName(r.Name, ValueAirflowComponentSQLProxy, ""),
@@ -719,7 +623,7 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 		Ports:     map[string]string{"sqlproxy": "3306"},
 	}
 
-	for _, fn := range []resource.GetObjectFn{tmplsvc, s.sts} {
+	for _, fn := range []resource.GetItemFn{tmplsvc, s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -729,31 +633,29 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *SQLProxySpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // Differs returns true if the resource needs to be updated
-func (s *SQLProxySpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *SQLProxySpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowBaseStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
 // ------------------------------ RedisSpec ---------------------------------------
 
-func (s *RedisSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *RedisSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"redis-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"redis-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Redis.Resources
 		if r.Cluster.Spec.Redis.VolumeClaimTemplate != nil {
 			sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Cluster.Spec.Redis.VolumeClaimTemplate}
@@ -762,28 +664,11 @@ func (s *RedisSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *RedisSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
-// Mutate - mutate expected
-func (s *RedisSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *RedisSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentRedis, ""),
@@ -800,7 +685,7 @@ func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 		PDBMinAvail: "100%",
 	}
 
-	for _, fn := range []resource.GetObjectFn{tmplsvc, tmplpodDisruption, tmplSecret, s.sts} {
+	for _, fn := range []resource.GetItemFn{tmplsvc, tmplpodDisruption, tmplSecret, s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -810,22 +695,20 @@ func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *RedisSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // Differs returns true if the resource needs to be updated
-func (s *RedisSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *RedisSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *RedisSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *RedisSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowClusterStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
 // ------------------------------ Scheduler ---------------------------------------
@@ -910,15 +793,15 @@ func (s *DagSpec) container(volName string) (bool, corev1.Container) {
 	return init, container
 }
 
-func (s *SchedulerSpec) configmap(v interface{}) (*resource.Object, error) {
-	return resource.ObjFromFile(TemplatePath+"airflow-configmap.yaml", v, &corev1.ConfigMapList{})
+func (s *SchedulerSpec) configmap(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"airflow-configmap.yaml", v, &corev1.ConfigMapList{})
 }
 
-func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *SchedulerSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"scheduler-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"scheduler-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		if r.Cluster.Spec.Executor == ExecutorK8s {
 			sts.Spec.Template.Spec.ServiceAccountName = sts.Name
 		}
@@ -930,48 +813,36 @@ func (s *SchedulerSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *SchedulerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+// DependentResources - return dependant resources
+func (s *SchedulerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	resources := r.dependantResources()
 	if r.Spec.Executor == ExecutorK8s {
 		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
-		resources.Add(resource.ReferredObject(&corev1.Secret{}, sqlSecret, r.Namespace))
+		resources.Add(k8s.ReferredItem(&corev1.Secret{}, sqlSecret, r.Namespace))
 	}
 	return resources
-}
-
-// Mutate - mutate expected
-func (s *SchedulerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *SchedulerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowCluster)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
-	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
-			resources.Add(resource.ReferredObject(&corev1.Secret{}, git.CredSecretRef.Name, r.Namespace))
+			resources.Add(k8s.ReferredItem(&corev1.Secret{}, git.CredSecretRef.Name, r.Namespace))
 		}
 	}
 
 	if r.Spec.Executor == ExecutorK8s {
 		sqlSvcName := rsrcName(r.Spec.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 		sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
-		se := dependent.Get(&corev1.Secret{}, sqlSecret, r.Namespace)
+		se := k8s.GetItem(dependent, &corev1.Secret{}, sqlSecret, r.Namespace)
 		secret := se.(*corev1.Secret)
 
 		dbPrefix := "mysql"
@@ -989,7 +860,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 			Labels:    rsrclabels,
 			SQLConn:   conn,
 		}
-		for _, fn := range []resource.GetObjectFn{s.configmap} {
+		for _, fn := range []resource.GetItemFn{s.configmap} {
 			rinfo, err := fn(&ngdata)
 			if err != nil {
 				return nil, err
@@ -1008,7 +879,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 		SQLConn:    "",
 	}
 
-	for _, fn := range []resource.GetObjectFn{s.sts, tmplServiceaccount, tmplRolebinding} {
+	for _, fn := range []resource.GetItemFn{s.sts, tmplServiceaccount, tmplRolebinding} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -1018,31 +889,29 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *SchedulerSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // Differs returns true if the resource needs to be updated
-func (s *SchedulerSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *SchedulerSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowClusterStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
 // ------------------------------ Worker -
 
-func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *WorkerSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"worker-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"worker-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Worker.Resources
 		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
@@ -1050,31 +919,19 @@ func (s *WorkerSpec) sts(v interface{}) (*resource.Object, error) {
 	return o, err
 }
 
-// DependantResources - return dependant resources
-func (s *WorkerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+// DependentResources - return dependant resources
+func (s *WorkerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	return r.dependantResources()
-}
-
-// Mutate - mutate expected
-func (s *WorkerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *WorkerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
 }
 
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
-	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentWorker, ""),
@@ -1087,7 +944,7 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 		Ports:      map[string]string{"wlog": "8793"},
 	}
 
-	for _, fn := range []resource.GetObjectFn{s.sts} {
+	for _, fn := range []resource.GetItemFn{s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -1097,50 +954,30 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *WorkerSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *WorkerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *WorkerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowClusterStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
-}
-
-// Differs returns true if the resource needs to be updated
-func (s *WorkerSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
-	// TODO
-	return true
+	return period
 }
 
 // ------------------------------ Flower ---------------------------------------
 
-// DependantResources - return dependant resources
-func (s *FlowerSpec) DependantResources(rsrc interface{}) *resource.ObjectBag {
+// DependentResources - return dependant resources
+func (s *FlowerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 	r := rsrc.(*AirflowCluster)
 	return r.dependantResources()
 }
 
-// Mutate - mutate expected
-func (s *FlowerSpec) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
-	return expected, nil
-}
-
-// Finalize - execute finalizers
-func (s *FlowerSpec) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	r := rsrc.(*AirflowBase)
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
 // ExpectedResources returns the list of resource/name for those resources created by
-func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
-	b := dependent.Get(&AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
+	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentFlower, ""),
@@ -1153,7 +990,7 @@ func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 		Ports:      map[string]string{"flower": "5555"},
 	}
 
-	for _, fn := range []resource.GetObjectFn{s.sts} {
+	for _, fn := range []resource.GetItemFn{s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -1163,29 +1000,27 @@ func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	return resources, nil
 }
 
-// Observables - return selectors
-func (s *FlowerSpec) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
 // Differs returns true if the resource needs to be updated
-func (s *FlowerSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
+func (s *FlowerSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return differs(expected, observed)
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
+func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
 	if s != nil {
 		stts := statusi.(*AirflowClusterStatus)
-		stts.UpdateStatus(reconciled.Objs(), err)
+		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+		stts.Meta.UpdateStatus(&ready, err)
 	}
+	return period
 }
 
-func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
+func (s *FlowerSpec) sts(v interface{}) (*resource.Item, error) {
 	r := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"flower-sts.yaml", v, &appsv1.StatefulSetList{})
+	o, err := k8s.ItemFromFile(TemplatePath+"flower-sts.yaml", v, &appsv1.StatefulSetList{})
 	if err == nil {
-		sts := o.Obj.(*appsv1.StatefulSet)
+		sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Flower.Resources
 		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
@@ -1195,29 +1030,18 @@ func (s *FlowerSpec) sts(v interface{}) (*resource.Object, error) {
 
 // ---------------- Global AirflowCluster component -------------------------
 
-// DependantResources - return dependant resources
-func (r *AirflowCluster) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
 // Mutate - mutate expected
-func (r *AirflowCluster) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowCluster) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
 	return expected, nil
 }
 
-// Finalize - execute finalizers
-func (r *AirflowCluster) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
-func (r *AirflowCluster) appcrd(v interface{}) (*resource.Object, error) {
+func (r *AirflowCluster) appcrd(v interface{}) (*resource.Item, error) {
 	value := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"cluster-application.yaml", v, nil)
+	o, err := k8s.ItemFromFile(TemplatePath+"cluster-application.yaml", v, nil)
 
 	if err == nil {
-		ao := application.Application{Application: *o.Obj.(*app.Application)}
-		o = ao.SetComponentGK(value.Expected).Object()
+		ao := application.Application{Application: *o.Obj.(*k8s.Object).Obj.(*app.Application)}
+		o = ao.SetComponentGK(value.Expected).Item()
 	}
 	return o, err
 }
@@ -1225,8 +1049,8 @@ func (r *AirflowCluster) appcrd(v interface{}) (*resource.Object, error) {
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 
 	selectors := make(map[string]string)
 	for k, v := range rsrclabels {
@@ -1241,7 +1065,7 @@ func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[stri
 		Expected:  aggregated,
 	}
 
-	for _, fn := range []resource.GetObjectFn{r.appcrd} {
+	for _, fn := range []resource.GetItemFn{r.appcrd} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -1251,46 +1075,26 @@ func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[stri
 	return resources, nil
 }
 
-// Observables - return selectors
-func (r *AirflowCluster) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
-// Differs returns true if the resource needs to be updated
-func (r *AirflowCluster) Differs(expected metav1.Object, observed metav1.Object) bool {
-	return true
-}
-
 // UpdateComponentStatus use reconciled objects to update component status
-func (r *AirflowCluster) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
-	return
+func (r *AirflowCluster) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
+	return period
 }
 
 // ---------------- Global AirflowBase component -------------------------
 
-// DependantResources - return dependant resources
-func (r *AirflowBase) DependantResources(rsrc interface{}) *resource.ObjectBag {
-	return &resource.ObjectBag{}
-}
-
 // Mutate - mutate expected
-func (r *AirflowBase) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.ObjectBag) (*resource.ObjectBag, error) {
+func (r *AirflowBase) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
 	return expected, nil
 }
 
-// Finalize - execute finalizers
-func (r *AirflowBase) Finalize(rsrc, sts interface{}, observed *resource.ObjectBag) error {
-	finalizer.Remove(r, finalizer.Cleanup)
-	return nil
-}
-
-func (r *AirflowBase) appcrd(v interface{}) (*resource.Object, error) {
+func (r *AirflowBase) appcrd(v interface{}) (*resource.Item, error) {
 	value := v.(*commonTmplValue)
-	o, err := resource.ObjFromFile(TemplatePath+"base-application.yaml", v, nil)
+	o, err := k8s.ItemFromFile(TemplatePath+"base-application.yaml", v, nil)
 
 	if err == nil {
-		ao := application.Application{Application: *o.Obj.(*app.Application)}
-		o = ao.SetComponentGK(value.Expected).Object()
+		ao := application.Application{Application: *o.Obj.(*k8s.Object).Obj.(*app.Application)}
+		o = ao.SetComponentGK(value.Expected).Item()
 	}
 	return o, err
 }
@@ -1298,8 +1102,8 @@ func (r *AirflowBase) appcrd(v interface{}) (*resource.Object, error) {
 // ExpectedResources returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.ObjectBag) (*resource.ObjectBag, error) {
-	var resources *resource.ObjectBag = new(resource.ObjectBag)
+func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
 
 	selectors := make(map[string]string)
 	for k, v := range rsrclabels {
@@ -1314,7 +1118,7 @@ func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]
 		Expected:  aggregated,
 	}
 
-	for _, fn := range []resource.GetObjectFn{r.appcrd} {
+	for _, fn := range []resource.GetItemFn{r.appcrd} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err
@@ -1324,17 +1128,8 @@ func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]
 	return resources, nil
 }
 
-// Observables - return selectors
-func (r *AirflowBase) Observables(scheme *runtime.Scheme, rsrc interface{}, rsrclabels map[string]string, expected *resource.ObjectBag) []resource.Observable {
-	return resource.ObservablesFromObjects(scheme, expected, rsrclabels)
-}
-
-// Differs returns true if the resource needs to be updated
-func (r *AirflowBase) Differs(expected metav1.Object, observed metav1.Object) bool {
-	return true
-}
-
 // UpdateComponentStatus use reconciled objects to update component status
-func (r *AirflowBase) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.ObjectBag, err error) {
-	return
+func (r *AirflowBase) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
+	return period
 }

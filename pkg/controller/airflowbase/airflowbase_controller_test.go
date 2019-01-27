@@ -94,7 +94,6 @@ func TestReconcile(t *testing.T) {
 	g.Eventually(func() error { return c.Get(context.TODO(), mysqlkey, mysqlsts) }, timeout).Should(gomega.Succeed())
 
 	// Manually delete Deployment since GC isn't enabled in the test control plane
-	g.Expect(c.Delete(context.TODO(), mysqlsts)).To(gomega.Succeed())
 	g.Expect(c.Delete(context.TODO(), nfssts)).To(gomega.Succeed())
 
 }

@@ -71,7 +71,8 @@ type AirflowBase struct {
 
 // AirflowBaseStatus defines the observed state of AirflowBase
 type AirflowBaseStatus struct {
-	status.Meta `json:",inline"`
+	status.Meta          `json:",inline"`
+	status.ComponentMeta `json:",inline"`
 }
 
 // AirflowBaseSpec defines the desired state of AirflowBase

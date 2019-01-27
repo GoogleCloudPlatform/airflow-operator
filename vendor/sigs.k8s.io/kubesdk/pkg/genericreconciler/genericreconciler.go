@@ -14,10 +14,8 @@ limitations under the License.
 package genericreconciler
 
 import (
-	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
+	apierror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,12 +23,21 @@ import (
 	urt "k8s.io/apimachinery/pkg/util/runtime"
 	"log"
 	"reflect"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	app "sigs.k8s.io/kubesdk/pkg/application"
 	"sigs.k8s.io/kubesdk/pkg/component"
 	cr "sigs.k8s.io/kubesdk/pkg/customresource"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
+	"time"
+)
+
+// Constants
+const (
+	DefaultReconcilePeriod      = 3 * time.Minute
+	FinalizeReconcilePeriod     = 30 * time.Second
+	CRGetFailureReconcilePeriod = 30 * time.Second
 )
 
 func handleErrorArr(info string, name string, e error, errs []error) []error {
@@ -44,85 +51,25 @@ func HandleError(info string, name string, e error) error {
 	return e
 }
 
-func (gr *Reconciler) observe(observables ...resource.Observable) (*resource.ObjectBag, error) {
-	var returnval *resource.ObjectBag = new(resource.ObjectBag)
-	var err error
-	for _, obs := range observables {
-		var resources []resource.Object
-		if obs.Labels != nil {
-			//log.Printf("   >>>list: %s labels:[%v]", reflect.TypeOf(obs.ObjList).String(), obs.Labels)
-			opts := client.MatchingLabels(obs.Labels)
-			opts.Raw = &metav1.ListOptions{TypeMeta: obs.Type}
-			err = gr.List(context.TODO(), opts, obs.ObjList.(runtime.Object))
-			if err == nil {
-				items, err := meta.ExtractList(obs.ObjList.(runtime.Object))
-				if err == nil {
-					for _, item := range items {
-						resources = append(resources, resource.Object{Obj: item.(metav1.Object)})
-					}
-				}
-				/*
-					//items := reflect.Indirect(reflect.ValueOf(obs.ObjList)).FieldByName("Items")
-					for i := 0; i < items.Len(); i++ {
-						o := items.Index(i)
-						resources = append(resources, resource.Object{Obj: o.Addr().Interface().(metav1.Object)})
-					}
-				*/
-			}
-		} else {
-			// check typecasting ?
-			// TODO check obj := obs.Obj.(metav1.Object)
-			var obj metav1.Object = obs.Obj.(metav1.Object)
-			name := obj.GetName()
-			namespace := obj.GetNamespace()
-			otype := reflect.TypeOf(obj).String()
-			err = gr.Get(context.TODO(),
-				types.NamespacedName{Name: name, Namespace: namespace},
-				obs.Obj.(runtime.Object))
-			if err == nil {
-				log.Printf("   >>get: %s", otype+"/"+namespace+"/"+name)
-				resources = append(resources, resource.Object{Obj: obs.Obj})
-			} else {
-				log.Printf("   >>>ERR get: %s", otype+"/"+namespace+"/"+name)
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, resource := range resources {
-			returnval.Add(resource)
-		}
+func (gr *Reconciler) itemMgr(i resource.Item) (manager.Manager, error) {
+	m := gr.RsrcMgr.Get(i.Type)
+	if m == nil {
+		return m, fmt.Errorf("Resource Manager not registered for Type: %s", i.Type)
 	}
-	return returnval, nil
-}
-
-func specDiffers(o1, o2 metav1.Object) bool {
-	// Not all k8s objects have Spec
-	// example ConfigMap
-	// TODO strategic merge patch diff in generic controller loop
-	e := reflect.Indirect(reflect.ValueOf(o1)).FieldByName("Spec")
-	o := reflect.Indirect(reflect.ValueOf(o2)).FieldByName("Spec")
-	if !e.IsValid() {
-		// handling ConfigMap
-		e = reflect.Indirect(reflect.ValueOf(o1)).FieldByName("Data")
-		o = reflect.Indirect(reflect.ValueOf(o2)).FieldByName("Data")
-	}
-	if e.IsValid() && o.IsValid() {
-		if reflect.DeepEqual(e.Interface(), o.Interface()) {
-			return false
-		}
-	}
-	return true
+	return m, nil
 }
 
 // ReconcileCR is a generic function that reconciles expected and observed resources
-func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName, handle cr.Handle) error {
+func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName, handle cr.Handle) (reconcile.Result, error) {
 	var status interface{}
-	expected := &resource.ObjectBag{}
+	var p time.Duration
+	period := DefaultReconcilePeriod
+	expected := &resource.Bag{}
 	update := false
 	rsrc := handle.NewRsrc()
 	name := reflect.TypeOf(rsrc).String() + "/" + namespacedname.String()
-	err := gr.Get(context.TODO(), namespacedname, rsrc.(runtime.Object))
+	rm := gr.RsrcMgr.Get("k8s")
+	err := k8s.Get(rm, namespacedname, rsrc.(runtime.Object))
 	if err == nil {
 		o := rsrc.(metav1.Object)
 		log.Printf("%s Validating spec\n", name)
@@ -134,79 +81,93 @@ func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName, handle cr
 			components := rsrc.Components()
 			for _, component := range components {
 				if o.GetDeletionTimestamp() == nil {
-					err = gr.ReconcileComponent(name, component, status, expected)
+					p, err = gr.ReconcileComponent(name, component, status, expected)
 				} else {
 					err = gr.FinalizeComponent(name, component, status, expected)
+					p = FinalizeReconcilePeriod
+				}
+				if p != 0 && p < period {
+					period = p
 				}
 			}
 		}
 	} else {
-		if errors.IsNotFound(err) {
+		if apierror.IsNotFound(err) {
 			urt.HandleError(fmt.Errorf("not found %s. %s", name, err.Error()))
-			// TODO check if we need to return err for not found err
-			return err
+			return reconcile.Result{}, nil
 		}
+		return reconcile.Result{RequeueAfter: CRGetFailureReconcilePeriod}, err
 	}
 	update = rsrc.UpdateRsrcStatus(status, err)
 
 	if update {
-		err = gr.Update(context.TODO(), rsrc.(runtime.Object))
+		err = rm.Update(resource.Item{Obj: &k8s.Object{Obj: rsrc.(metav1.Object)}})
 	}
 	if err != nil {
 		urt.HandleError(fmt.Errorf("error updating %s. %s", name, err.Error()))
 	}
 
-	return err
+	return reconcile.Result{RequeueAfter: period}, err
+}
+
+func (gr *Reconciler) observe(observables []resource.Observable) (*resource.Bag, error) {
+	seen := &resource.Bag{}
+	for _, m := range gr.RsrcMgr.All() {
+		o, err := m.Observe(observables...)
+		if err != nil {
+			return &resource.Bag{}, err
+		}
+		seen.Merge(o)
+	}
+	return seen, nil
 }
 
 // ObserveAndMutate is a function that is called to observe and mutate expected resources
-func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, status interface{}, mutate bool, aggregated *resource.ObjectBag) (*resource.ObjectBag, *resource.ObjectBag, string, error) {
+func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, status interface{}, mutate bool, aggregated *resource.Bag) (*resource.Bag, *resource.Bag, string, error) {
 	var err error
-	var expected, observed, dependent *resource.ObjectBag
+	var expected, observed, dependent *resource.Bag
 
 	// Get dependenta objects
-	stage := "dependent resources"
-	dependent, err = gr.observe(resource.ObservablesFromObjects(gr.Scheme, c.DependantResources(c.CR), c.Labels())...)
 
+	// Loop over all RMs
+	stage := "dependent resources"
+	dependent, err = gr.observe(c.GetAllObservables(&gr.RsrcMgr, c.DependentResources(c.CR)))
 	if err == nil && dependent != nil {
 		// Get Expected resources
 		stage = "gathering expected resources"
 		expected, err = c.ExpectedResources(c.CR, c.Labels(), dependent, aggregated)
 		if err == nil && expected != nil {
-			// Get observables
-			observables := c.Observables(gr.Scheme, c.CR, c.Labels(), expected)
-			// Observe observables
+			// Get Observe observables
 			stage = "observing resources"
-			observed, err = gr.observe(observables...)
+			observed, err = gr.observe(c.Observables(&gr.RsrcMgr, expected))
 			if mutate && err == nil {
 				// Mutate expected objects
 				stage = "mutating resources"
-				expected, err = c.Mutate(c.CR, c.Labels(), status, expected, dependent, observed)
+				expected, err = c.Mutate(status, expected, dependent, observed)
 				if err == nil && expected != nil {
 					// Get observables
-					observables := c.Observables(gr.Scheme, c.CR, c.Labels(), expected)
 					// Observe observables
 					stage = "observing resources after mutation"
-					observed, err = gr.observe(observables...)
+					observed, err = gr.observe(c.Observables(&gr.RsrcMgr, expected))
 				}
 			}
 		}
 	}
 	if err != nil {
-		observed = &resource.ObjectBag{}
-		expected = &resource.ObjectBag{}
+		observed = &resource.Bag{}
+		expected = &resource.Bag{}
 	}
 	if expected == nil {
-		expected = &resource.ObjectBag{}
+		expected = &resource.Bag{}
 	}
 	if observed == nil {
-		observed = &resource.ObjectBag{}
+		observed = &resource.Bag{}
 	}
 	return expected, observed, stage, err
 }
 
 // FinalizeComponent is a function that finalizes component
-func (gr *Reconciler) FinalizeComponent(crname string, c component.Component, status interface{}, aggregated *resource.ObjectBag) error {
+func (gr *Reconciler) FinalizeComponent(crname string, c component.Component, status interface{}, aggregated *resource.Bag) error {
 	cname := crname + "(cmpnt:" + c.Name + ")"
 	log.Printf("%s  { finalizing component\n", cname)
 	defer log.Printf("%s  } finalizing component\n", cname)
@@ -217,14 +178,36 @@ func (gr *Reconciler) FinalizeComponent(crname string, c component.Component, st
 		HandleError(stage, crname, err)
 	}
 	aggregated.Add(expected.Items()...)
-	err = c.Finalize(c.CR, status, observed)
+	stage = "finalizing resource"
+	err = c.Finalize(status, observed)
+	if err == nil {
+		stage = "finalizing deletion of objects"
+		for _, o := range observed.Items() {
+			oRsrcName := o.Obj.GetName()
+			if o.Delete {
+				if rm, e := gr.itemMgr(o); e != nil {
+					err = e
+					break
+				} else if e := rm.Delete(o); e != nil {
+					err = e
+					break
+				} else {
+					log.Printf("%s   -delete: %s\n", cname, oRsrcName)
+				}
+
+			}
+		}
+	}
+	if err != nil {
+		HandleError(stage, crname, err)
+	}
 	return err
 }
 
 // ReconcileComponent is a generic function that reconciles expected and observed resources
-func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, status interface{}, aggregated *resource.ObjectBag) error {
+func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, status interface{}, aggregated *resource.Bag) (time.Duration, error) {
 	errs := []error{}
-	var reconciled *resource.ObjectBag = new(resource.ObjectBag)
+	var reconciled *resource.Bag = new(resource.Bag)
 
 	cname := crname + "(cmpnt:" + c.Name + ")"
 	log.Printf("%s  { reconciling component\n", cname)
@@ -251,35 +234,31 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 		log.Printf("%s  Expected Resources:\n", cname)
 		for _, e := range expected.Items() {
 			e.Obj.SetOwnerReferences(c.OwnerRef)
-			log.Printf("%s   exp: %s/%s/%s\n", cname, e.Obj.GetNamespace(), reflect.TypeOf(e.Obj).String(), e.Obj.GetName())
+			log.Printf("%s   exp: %s %s\n", cname, e.Type, e.Obj.GetName())
 		}
 		log.Printf("%s  Observed Resources:\n", cname)
 		for _, e := range observed.Items() {
-			log.Printf("%s   obs: %s/%s/%s\n", cname, e.Obj.GetNamespace(), reflect.TypeOf(e.Obj).String(), e.Obj.GetName())
+			log.Printf("%s   obs: %s\n", cname, e.Obj.GetName())
 		}
 
 		log.Printf("%s  Reconciling Resources:\n", cname)
 	}
 	for _, e := range expected.Items() {
 		seen := false
-		eNamespace := e.Obj.GetNamespace()
-		eName := e.Obj.GetName()
-		eKind := reflect.TypeOf(e.Obj).String()
-		eRsrcInfo := eNamespace + "/" + eKind + "/" + eName
+		eRsrcName := e.Obj.GetName()
 		for _, o := range observed.Items() {
-			if (eName == o.Obj.GetName()) &&
-				(eNamespace == o.Obj.GetNamespace()) &&
-				(eKind == reflect.TypeOf(o.Obj).String()) {
+			if e.Type == o.Type && e.Obj.IsSameAs(o.Obj) {
 				// rsrc is seen in both expected and observed, update it if needed
-				e.Obj.SetResourceVersion(o.Obj.GetResourceVersion())
-				if e.Lifecycle == resource.LifecycleManaged && specDiffers(e.Obj, o.Obj) && c.Differs(e.Obj, o.Obj) {
-					if err := gr.Update(context.TODO(), e.Obj.(runtime.Object).DeepCopyObject()); err != nil {
-						errs = handleErrorArr("update", eRsrcInfo, err, errs)
+				if rm, err := gr.itemMgr(e); err != nil {
+					errs = handleErrorArr("update", eRsrcName, err, errs)
+				} else if e.Lifecycle == resource.LifecycleManaged && rm.SpecDiffers(&e, &o) && c.Differs(e, o) {
+					if err := rm.Update(e); err != nil {
+						errs = handleErrorArr("update", eRsrcName, err, errs)
 					} else {
-						log.Printf("%s   update: %s\n", cname, eRsrcInfo)
+						log.Printf("%s   update: %s\n", cname, eRsrcName)
 					}
 				} else {
-					log.Printf("%s   nochange: %s\n", cname, eRsrcInfo)
+					log.Printf("%s   nochange: %s\n", cname, eRsrcName)
 				}
 				reconciled.Add(o)
 				seen = true
@@ -289,14 +268,16 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 		// rsrc is in expected but not in observed - create
 		if !seen {
 			if e.Lifecycle == resource.LifecycleManaged {
-				if err := gr.Create(context.TODO(), e.Obj.(runtime.Object)); err != nil {
+				if rm, err := gr.itemMgr(e); err != nil {
+					errs = handleErrorArr("Create", cname, err, errs)
+				} else if err := rm.Create(e); err != nil {
 					errs = handleErrorArr("Create", cname, err, errs)
 				} else {
-					log.Printf("%s   +create: %s\n", cname, eRsrcInfo)
+					log.Printf("%s   +create: %s\n", cname, eRsrcName)
 					reconciled.Add(e)
 				}
 			} else {
-				err := fmt.Errorf("missing resource not managed by %s: %s", cname, eRsrcInfo)
+				err := fmt.Errorf("missing resource not managed by %s: %s", cname, eRsrcName)
 				errs = handleErrorArr("missing resource", cname, err, errs)
 			}
 		}
@@ -305,40 +286,37 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 	// delete(observed - expected)
 	for _, o := range observed.Items() {
 		seen := false
-		oNamespace := o.Obj.GetNamespace()
-		oName := o.Obj.GetName()
-		oKind := reflect.TypeOf(o.Obj).String()
-		oRsrcInfo := oKind + "/" + oNamespace + "/" + oName
+		oRsrcName := o.Obj.GetName()
 		for _, e := range expected.Items() {
-			if (e.Obj.GetName() == oName) &&
-				(e.Obj.GetNamespace() == oNamespace) &&
-				(reflect.TypeOf(o.Obj).String() == oKind) {
+			if e.Type == o.Type && e.Obj.IsSameAs(o.Obj) {
 				seen = true
 				break
 			}
 		}
 		// rsrc is in observed but not in expected - delete
 		if !seen {
-			if err := gr.Delete(context.TODO(), o.Obj.(runtime.Object)); err != nil {
-				errs = handleErrorArr("delete", oRsrcInfo, err, errs)
+			if rm, err := gr.itemMgr(o); err != nil {
+				errs = handleErrorArr("delete", oRsrcName, err, errs)
+			} else if err := rm.Delete(o); err != nil {
+				errs = handleErrorArr("delete", oRsrcName, err, errs)
 			} else {
-				log.Printf("%s   -delete: %s\n", cname, oRsrcInfo)
+				log.Printf("%s   -delete: %s\n", cname, oRsrcName)
 			}
 		}
 	}
 
 	err = utilerrors.NewAggregate(errs)
-	c.UpdateComponentStatus(c.CR, status, reconciled, err)
-	return err
+	period := c.UpdateComponentStatus(status, reconciled, err)
+	return period, err
 }
 
 // Reconcile expected by kubebuilder
 func (gr *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	err := gr.ReconcileCR(request.NamespacedName, gr.Handle)
+	r, err := gr.ReconcileCR(request.NamespacedName, gr.Handle)
 	if err != nil {
 		fmt.Printf("err: %s", err.Error())
 	}
-	return reconcile.Result{}, err
+	return r, err
 }
 
 // AddToSchemes for adding Application to scheme
@@ -346,8 +324,8 @@ var AddToSchemes runtime.SchemeBuilder
 
 // Init sets up Reconciler
 func (gr *Reconciler) Init() {
-	gr.Client = gr.Manager.GetClient()
-	gr.Scheme = gr.Manager.GetScheme()
+	km := k8s.NewRsrcManager().WithName("basek8s").WithClient(gr.Manager.GetClient()).WithScheme(gr.Manager.GetScheme())
+	gr.RsrcMgr.Add(k8s.Type, km)
 	app.AddToScheme(&AddToSchemes)
-	AddToSchemes.AddToScheme(gr.Scheme)
+	AddToSchemes.AddToScheme(gr.Manager.GetScheme())
 }

@@ -22,7 +22,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 )
 
 type TemplateValues struct {
@@ -47,23 +47,23 @@ var _ = Describe("Resource", func() {
 	BeforeEach(func() {
 	})
 
-	Describe("ObjFromFile", func() {
+	Describe("ItemFromFile", func() {
 		It("Object loading from file returns error with missing template variable", func(done Done) {
-			o, e := resource.ObjFromFile("testdata/sts.yaml", fooval, &appsv1.StatefulSetList{})
+			o, e := k8s.ItemFromFile("testdata/sts.yaml", fooval, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
 			close(done)
 		})
 		It("Object loading from file returns error with empty template field for maps", func(done Done) {
-			o, e := resource.ObjFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ItemFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
 			close(done)
 		})
 		It("Object loading from file returns error with missing template file", func(done Done) {
-			o, e := resource.ObjFromFile("test/sts.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ItemFromFile("test/sts.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
@@ -88,14 +88,15 @@ var _ = Describe("Resource", func() {
 				Version:  "v1.0",
 				Replicas: 1,
 			}
-			o, e := resource.ObjFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ItemFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).To(BeNil())
 			Expect(o).NotTo(BeNil())
-			Expect(o.Obj.GetName()).To(Equal("myapp"))
-			Expect(o.Obj.GetNamespace()).To(Equal("default"))
-			sts, ok := o.Obj.(*appsv1.StatefulSet)
+			obj := o.Obj.(*k8s.Object).Obj
+			sts, ok := obj.(*appsv1.StatefulSet)
 			Expect(ok).To(BeTrue())
+			Expect(obj.GetName()).To(Equal("myapp"))
+			Expect(obj.GetNamespace()).To(Equal("default"))
 			Expect(sts.ObjectMeta.Name).To(Equal("myapp"))
 			close(done)
 		})
@@ -111,7 +112,7 @@ var _ = Describe("Resource", func() {
 					"k2": "v2",
 				},
 			}
-			o, e := resource.ObjFromFile("testdata/unknown_rsrc.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ItemFromFile("testdata/unknown_rsrc.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
@@ -142,7 +143,7 @@ spec:
 `
 
 		It("Pod loading from string fails for incorrectly formatted spec", func(done Done) {
-			o, e := resource.ObjFromString("bad pod spec", fooval, &corev1.ServiceList{})
+			o, e := k8s.ItemFromString("svc", "bad pod spec", fooval, &corev1.ServiceList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
@@ -160,15 +161,16 @@ spec:
 					"k2": "v2",
 				},
 			}
-			o, e := resource.ObjFromString(svcspec, val, &corev1.ServiceList{})
+			o, e := k8s.ItemFromString("svc", svcspec, val, &corev1.ServiceList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).To(BeNil())
 			Expect(o).NotTo(BeNil())
-			Expect(o.Obj.GetName()).To(Equal("mysvc"))
-			Expect(o.Obj.GetNamespace()).To(Equal("default"))
-			sts, ok := o.Obj.(*corev1.Service)
+			obj := o.Obj.(*k8s.Object).Obj
+			svc, ok := obj.(*corev1.Service)
 			Expect(ok).To(BeTrue())
-			Expect(sts.ObjectMeta.Name).To(Equal("mysvc"))
+			Expect(obj.GetName()).To(Equal("mysvc"))
+			Expect(obj.GetNamespace()).To(Equal("default"))
+			Expect(svc.ObjectMeta.Name).To(Equal("mysvc"))
 			close(done)
 		})
 	})

@@ -16,7 +16,11 @@ package component
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
+	"sigs.k8s.io/kubesdk/pkg/finalizer"
+	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager"
 	"strings"
+	"time"
 )
 
 // Constants defining labels
@@ -49,4 +53,66 @@ func (out KVMap) Merge(kvmaps ...KVMap) {
 			out[k] = v
 		}
 	}
+}
+
+// DependentResources Get dependent resources from component or defaults
+func (c *Component) DependentResources(rsrc interface{}) *resource.Bag {
+	if s, ok := c.Handle.(DependentResourcesInterface); ok {
+		return s.DependentResources(rsrc)
+	}
+	return &resource.Bag{}
+}
+
+// Mutate Get dependent resources from component or defaults
+func (c *Component) Mutate(status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
+	if s, ok := c.Handle.(MutateInterface); ok {
+		return s.Mutate(c.CR, c.Labels(), status, expected, dependent, observed)
+	}
+	return expected, nil
+}
+
+// GetAllObservables - get all observables
+func (c *Component) GetAllObservables(rsrcmgr *manager.ResourceManager, bag *resource.Bag) []resource.Observable {
+	var observables []resource.Observable
+	for _, m := range rsrcmgr.All() {
+		o := m.ObservablesFromObjects(bag, c.Labels())
+		observables = append(observables, o...)
+	}
+	return observables
+}
+
+// Observables - gets observbables from the expected objects
+func (c *Component) Observables(rsrcmgr *manager.ResourceManager, expected *resource.Bag) []resource.Observable {
+	if s, ok := c.Handle.(ObservablesInterface); ok {
+		return s.Observables(rsrcmgr, c.CR, c.Labels(), expected)
+	}
+	return c.GetAllObservables(rsrcmgr, expected)
+}
+
+// Differs - call differs
+func (c *Component) Differs(expected resource.Item, observed resource.Item) bool {
+	if s, ok := c.Handle.(DiffersInterface); ok {
+		return s.Differs(expected, observed)
+	}
+	return true
+}
+
+// Finalize - Finalize component
+func (c *Component) Finalize(status interface{}, observed *resource.Bag) error {
+	if s, ok := c.Handle.(FinalizeInterface); ok {
+		return s.Finalize(c.CR, status, observed)
+	}
+	if r, ok := c.CR.(metav1.Object); ok {
+		finalizer.RemoveStandard(r)
+	}
+	return nil
+}
+
+// UpdateComponentStatus - update component status
+func (c *Component) UpdateComponentStatus(status interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
+	if s, ok := c.Handle.(StatusInterface); ok {
+		return s.UpdateComponentStatus(c.CR, status, reconciled, err)
+	}
+	return period
 }

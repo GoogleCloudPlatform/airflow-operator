@@ -169,11 +169,13 @@ data:
     worker_container_repository = {{.Cluster.Spec.Worker.Image}}
     worker_container_tag = {{.Cluster.Spec.Worker.Version}}
     worker_container_image_pull_policy = IfNotPresent
-    worker_dags_folder = /tmp/dags
-    delete_worker_pods = False
+    delete_worker_pods = True
+    worker_service_account_name = 
     git_repo = {{.Cluster.Spec.DAGs.Git.Repo}}
     git_branch = {{.Cluster.Spec.DAGs.Git.Branch}}
     git_subpath = {{.Cluster.Spec.DAGs.DagSubdir}}
+    git_dags_folder_mount_point = /usr/local/airflow/dags/
+    git_sync_dest = gitdags
     git_user =
     git_password =
     in_cluster = True

@@ -109,7 +109,7 @@ var _ = Describe(CRName+" controller tests", func() {
 
 	// CloudSQL
 	// BROKEN  TODO
-	// https://github.com/GoogleCloudPlatform/airflow-operator/issues/48<Paste>
+	// https://github.com/GoogleCloudPlatform/airflow-operator/issues/48
 	/*
 		It("creating a "+CRName+" with cloudsql, celery executor", func() {
 			basectx = f.NewContext().WithCR(airflowBase(SampleDir + "cloudsql-celery/base.yaml"))
@@ -127,6 +127,14 @@ var _ = Describe(CRName+" controller tests", func() {
 
 		It("creating a "+CRName+" with cloudsql, local executor", func() {
 			ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-local/cluster.yaml"))
+			cr := ctx.CR.(*v1alpha1.AirflowCluster)
+			By("creating a new " + CRName + ": " + cr.Name)
+			ctx.CreateCR()
+			checkLocal(cr)
+		})
+
+		It("creating a "+CRName+" with cloudsql, k8s executor", func() {
+			ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-k8s/cluster.yaml"))
 			cr := ctx.CR.(*v1alpha1.AirflowCluster)
 			By("creating a new " + CRName + ": " + cr.Name)
 			ctx.CreateCR()
@@ -156,6 +164,14 @@ var _ = Describe(CRName+" controller tests", func() {
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()
 		checkLocal(cr)
+	})
+
+	It("creating a "+CRName+" with postgres, k8s executor", func() {
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "postgres-k8s/cluster.yaml"))
+		cr := ctx.CR.(*v1alpha1.AirflowCluster)
+		By("creating a new " + CRName + ": " + cr.Name)
+		ctx.CreateCR()
+		checkLocal(cr)
 		deleteBase = true
 	})
 
@@ -176,6 +192,14 @@ var _ = Describe(CRName+" controller tests", func() {
 
 	It("creating a "+CRName+" with mysql, local executor", func() {
 		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-local/cluster.yaml"))
+		cr := ctx.CR.(*v1alpha1.AirflowCluster)
+		By("creating a new " + CRName + ": " + cr.Name)
+		ctx.CreateCR()
+		checkLocal(cr)
+	})
+
+	It("creating a "+CRName+" with mysql, k8s executor", func() {
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-k8s/cluster.yaml"))
 		cr := ctx.CR.(*v1alpha1.AirflowCluster)
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.SvcName}}
+  namespace: {{.Namespace}}
+  labels:
+    {{range $k,$v := .Labels }}
+    {{$k}}: {{$v}}
+    {{end}}
+spec:
+  ports:
+  {{range $k,$v := .Ports }}
+  - name: {{$k}}
+    port: {{$v}}
+  {{end}}
+  selector:
+    {{range $k,$v := .Selector }}
+    {{$k}}: {{$v}}
+    {{end}}
+  clusterIP: None

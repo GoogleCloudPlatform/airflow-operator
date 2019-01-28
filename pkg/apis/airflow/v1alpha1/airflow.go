@@ -199,6 +199,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 				{Name: afk + "GIT_REPO", Value: sp.DAGs.Git.Repo},
 				{Name: afk + "GIT_BRANCH", Value: sp.DAGs.Git.Branch},
 				{Name: afk + "GIT_SUBPATH", Value: sp.DAGs.DagSubdir},
+				{Name: afk + "GIT_SYNC_DEST", Value: GitSyncDestDir},
 				{Name: afk + "WORKER_SERVICE_ACCOUNT_NAME", Value: saName},
 				{Name: afk + "GIT_DAGS_FOLDER_MOUNT_POINT", Value: AirflowDagsBase},
 				// git_sync_root = /git

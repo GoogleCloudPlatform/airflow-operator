@@ -339,8 +339,8 @@ func tmplsvc(v interface{}) (*resource.Item, error) {
 	return k8s.ItemFromFile(TemplatePath+"svc.yaml", v, &corev1.ServiceList{})
 }
 
-func tmplWorkerSvc(v interface{}) (*resource.Item, error) {
-	return k8s.ItemFromFile(TemplatePath+"worker-svc.yaml", v, &corev1.ServiceList{})
+func tmplHeadlessSvc(v interface{}) (*resource.Item, error) {
+	return k8s.ItemFromFile(TemplatePath+"headlesssvc.yaml", v, &corev1.ServiceList{})
 }
 
 func tmplpodDisruption(v interface{}) (*resource.Item, error) {
@@ -959,7 +959,7 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 		Ports:      map[string]string{"wlog": "8793"},
 	}
 
-	for _, fn := range []resource.GetItemFn{tmplWorkerSvc, s.sts} {
+	for _, fn := range []resource.GetItemFn{tmplHeadlessSvc, s.sts} {
 		rinfo, err := fn(&ngdata)
 		if err != nil {
 			return nil, err

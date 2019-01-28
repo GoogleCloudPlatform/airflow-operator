@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/kubesdk/pkg/component"
 	"sigs.k8s.io/kubesdk/pkg/resource"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -218,9 +219,17 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 			}...)
 	}
 
-	for k, v := range sp.Config.AirflowEnv {
-		env = append(env, corev1.EnvVar{Name: k, Value: v})
+	// Do sorted key scan. To store the keys in slice in sorted order
+	var keys []string
+	for k := range sp.Config.AirflowEnv {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		env = append(env, corev1.EnvVar{Name: k, Value: sp.Config.AirflowEnv[k]})
+	}
+
 	return env
 }
 

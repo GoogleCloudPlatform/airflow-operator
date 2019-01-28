@@ -106,6 +106,35 @@ var _ = Describe(CRName+" controller tests", func() {
 		ctx = nil
 	})
 
+	// CloudSQL
+	// BROKEN  TODO
+	// https://github.com/GoogleCloudPlatform/airflow-operator/issues/48<Paste>
+	/*
+		It("creating a "+CRName+" with cloudsql, celery executor", func() {
+			basectx = f.NewContext().WithCR(airflowBase(SampleDir + "cloudsql-celery/base.yaml"))
+			ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-celery/cluster.yaml"))
+			basecr := basectx.CR.(*v1alpha1.AirflowBase)
+			cr := ctx.CR.(*v1alpha1.AirflowCluster)
+			By("creating a base " + basecr.Name)
+			basectx.CreateCR()
+			basectx.WithTimeout(200).CheckCR(isBaseReady)
+
+			By("creating a new " + CRName + ": " + cr.Name)
+			ctx.CreateCR()
+			checkCelery(cr)
+		})
+
+		It("creating a "+CRName+" with cloudsql, local executor", func() {
+			ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-local/cluster.yaml"))
+			cr := ctx.CR.(*v1alpha1.AirflowCluster)
+			By("creating a new " + CRName + ": " + cr.Name)
+			ctx.CreateCR()
+			checkLocal(cr)
+			deleteBase = true
+		})
+	*/
+
+	// Postgres
 	It("creating a "+CRName+" with postgres, celery executor", func() {
 		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "postgres-celery/base.yaml"))
 		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "postgres-celery/cluster.yaml"))
@@ -128,6 +157,8 @@ var _ = Describe(CRName+" controller tests", func() {
 		checkLocal(cr)
 		deleteBase = true
 	})
+
+	// Mysql
 	It("creating a "+CRName+" with mysql, celery executor", func() {
 		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "mysql-celery/base.yaml"))
 		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-celery/cluster.yaml"))

@@ -185,12 +185,12 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 	}
 	if sp.Executor == ExecutorK8s {
 		env = append(env, []corev1.EnvVar{
+			{Name: afk + "AIRFLOW_CONFIGMAP", Value: schedulerConfigmap},
 			{Name: afk + "WORKER_CONTAINER_REPOSITORY", Value: sp.Worker.Image},
 			{Name: afk + "WORKER_CONTAINER_TAG", Value: sp.Worker.Version},
 			{Name: afk + "WORKER_CONTAINER_IMAGE_PULL_POLICY", Value: "IfNotPresent"},
 			{Name: afk + "DELETE_WORKER_PODS", Value: "True"},
 			{Name: afk + "NAMESPACE", Value: r.Namespace},
-			{Name: afk + "AIRFLOW_CONFIGMAP", Value: schedulerConfigmap},
 			//{Name: afk+"IMAGE_PULL_SECRETS", Value: s.ImagePullSecrets},
 			//{Name: afk+"GCP_SERVICE_ACCOUNT_KEYS", Vaslue:  ??},
 		}...)
@@ -200,6 +200,9 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 				{Name: afk + "GIT_BRANCH", Value: sp.DAGs.Git.Branch},
 				{Name: afk + "GIT_SUBPATH", Value: sp.DAGs.DagSubdir},
 				{Name: afk + "WORKER_SERVICE_ACCOUNT_NAME", Value: saName},
+				{Name: afk + "GIT_DAGS_FOLDER_MOUNT_POINT", Value: AirflowDagsBase},
+				// git_sync_root = /git
+				// git_sync_dest = repo
 			}...)
 			if sp.DAGs.Git.CredSecretRef != nil {
 				env = append(env, []corev1.EnvVar{
@@ -209,6 +212,9 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 				}...)
 			}
 		}
+		// dags_in_image = False
+		// dags_volume_subpath =
+		// dags_volume_claim =
 	}
 	if sp.Executor == ExecutorCelery {
 		env = append(env,

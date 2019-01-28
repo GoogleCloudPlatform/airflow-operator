@@ -13,6 +13,7 @@ metadata:
     {{end}}
 spec:
   replicas: {{.Cluster.Spec.Worker.Replicas}}
+  serviceName: {{.Name}}
   selector:
     matchLabels:
       {{range $k,$v := .Selector }}

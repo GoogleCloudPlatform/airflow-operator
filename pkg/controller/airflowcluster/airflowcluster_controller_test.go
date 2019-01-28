@@ -64,10 +64,10 @@ func TestReconcile(t *testing.T) {
 		Spec: airflowv1alpha1.AirflowClusterSpec{
 			Executor:  "Celery",
 			Redis:     &airflowv1alpha1.RedisSpec{Operator: false},
-			Scheduler: &airflowv1alpha1.SchedulerSpec{Version: "1.10.1"},
-			UI:        &airflowv1alpha1.AirflowUISpec{Replicas: 1, Version: "1.10.1"},
-			Worker:    &airflowv1alpha1.WorkerSpec{Replicas: 2, Version: "1.10.1"},
-			Flower:    &airflowv1alpha1.FlowerSpec{Replicas: 1, Version: "1.10.1"},
+			Scheduler: &airflowv1alpha1.SchedulerSpec{Version: "1.10.2"},
+			UI:        &airflowv1alpha1.AirflowUISpec{Replicas: 1, Version: "1.10.2"},
+			Worker:    &airflowv1alpha1.WorkerSpec{Replicas: 2, Version: "1.10.2"},
+			Flower:    &airflowv1alpha1.FlowerSpec{Replicas: 1, Version: "1.10.2"},
 			DAGs: &airflowv1alpha1.DagSpec{
 				DagSubdir: "airflow/example_dags/",
 				Git: &airflowv1alpha1.GitSpec{

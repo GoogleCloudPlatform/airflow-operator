@@ -22,11 +22,11 @@ spec:
   executor: Kubernetes
   ui:
     replicas: 1
-    version: "1.10.1"
+    version: "1.10.2"
   scheduler:
-    version: "1.10.1"
+    version: "1.10.2"
   worker:
-    version: "1.10.1"
+    version: "1.10.2"
   dags:
     subdir: "airflow/example_dags/"
     git:

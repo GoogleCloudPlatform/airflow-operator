@@ -102,6 +102,7 @@ var _ = Describe(CRName+" controller tests", func() {
 		if deleteBase {
 			deleteBase = false
 			basectx.DeleteCR()
+			basectx = nil
 		}
 		ctx = nil
 	})

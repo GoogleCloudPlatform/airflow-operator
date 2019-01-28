@@ -27,3 +27,8 @@ spec:
     version: "1.10.2"
   airflowbase:
     name: mc-base
+    #  config:
+    #airflow:
+    #  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "100"
+    #  AIRFLOW__WEBSERVER__AUTHENTICATE: "True"
+    #  AIRFLOW__WEBSERVER__AUTH_BACKEND: "airflow.contrib.auth.backends.password_auth"

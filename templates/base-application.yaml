@@ -19,7 +19,7 @@ spec:
       {{end}}
   descriptor:
     type: Airflow (base)
-    version: '1.10.1'
+    version: '1.10.2'
     description: |-
       Apache Airflow is a platform to programmatically author, schedule and monitor workflows.
       AirflowBase deploys the common components (sql,storage) needed for Airflow cluster.

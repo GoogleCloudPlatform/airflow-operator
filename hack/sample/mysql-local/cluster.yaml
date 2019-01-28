@@ -21,9 +21,9 @@ metadata:
 spec:
   executor: Local
   scheduler:
-    version: "1.10.1"
+    version: "1.10.2"
   ui:
     replicas: 1
-    version: "1.10.1"
+    version: "1.10.2"
   airflowbase:
     name: mc-base

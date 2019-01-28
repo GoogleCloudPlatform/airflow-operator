@@ -71,6 +71,18 @@ var _ = Describe(CRName+" controller tests", func() {
 		ctx = nil
 	})
 
+	It("creating a "+CRName+" with cloudsql", func() {
+		ctx = f.NewContext().WithCR(airflowBase(SampleDir + "cloudsql-celery/base.yaml"))
+		cr := ctx.CR.(*v1alpha1.AirflowBase)
+		By("creating a new " + CRName + ": " + cr.Name)
+		ctx.CreateCR()
+		ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-cloudsql", 1, 1)
+		ctx.WithTimeout(10).CheckService(cr.Name+"-sql", map[string]int32{"mysql": 3306})
+		//ctx.WithTimeout(10).CheckSecret(name)
+		ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-nfs", 1, 1)
+		ctx.WithTimeout(100).CheckCR(isBaseReady)
+	})
+
 	It("creating a "+CRName+" with mysql", func() {
 		ctx = f.NewContext().WithCR(airflowBase(SampleDir + "mysql-celery/base.yaml"))
 		cr := ctx.CR.(*v1alpha1.AirflowBase)

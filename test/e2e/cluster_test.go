@@ -31,6 +31,7 @@ const (
 var f *test.Framework
 var ctx, basectx *test.Context
 var deleteBase bool
+var deleteCluster = true
 
 func airflowBase(file string) *v1alpha1.AirflowBase {
 	cr := &v1alpha1.AirflowBase{}
@@ -98,13 +99,16 @@ func checkCelery(cr *v1alpha1.AirflowCluster) {
 
 var _ = Describe(CRName+" controller tests", func() {
 	AfterEach(func() {
-		ctx.DeleteCR()
+		if deleteCluster {
+			ctx.DeleteCR()
+			ctx = nil
+		}
+		deleteCluster = true
 		if deleteBase {
 			deleteBase = false
 			basectx.DeleteCR()
 			basectx = nil
 		}
-		ctx = nil
 	})
 
 	// Postgres
@@ -120,6 +124,16 @@ var _ = Describe(CRName+" controller tests", func() {
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()
 		checkCelery(cr)
+		deleteCluster = false
+	})
+
+	It("scaling up workers for "+CRName+" with postgres, celery executor", func() {
+		ctx.RefreshCR()
+		cr := ctx.CR.(*v1alpha1.AirflowCluster)
+		By("scaling up workers: " + cr.Name)
+		cr.Spec.Worker.Replicas++
+		ctx.UpdateCR()
+		ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-worker", 3, 2)
 	})
 
 	It("creating a "+CRName+" with postgres, local executor", func() {

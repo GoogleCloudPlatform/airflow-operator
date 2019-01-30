@@ -234,9 +234,13 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-
 	for _, k := range keys {
 		env = append(env, corev1.EnvVar{Name: k, Value: sp.Config.AirflowEnv[k]})
+	}
+
+	// Do sorted key scan. To store the keys in slice in sorted order
+	for _, k := range sp.Config.AirflowSecretEnv {
+		env = append(env, corev1.EnvVar{Name: k.Env, ValueFrom: envFromSecret(k.Secret, k.Field)})
 	}
 
 	return env

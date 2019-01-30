@@ -227,11 +227,21 @@ func (s *DagSpec) validate(fp *field.Path) field.ErrorList {
 	return errs
 }
 
+// SecretEnv secret env
+type SecretEnv struct {
+	Env    string
+	Secret string
+	Field  string
+}
+
 // ClusterConfig is used to capture the config for Airflow
 type ClusterConfig struct {
 	// Airflow defines a list of kv pairs that describe env variables injected into the nodes
 	// +optional
 	AirflowEnv map[string]string `json:"airflow,omitempty"`
+	// AirflowSecret defines a list of secret envs
+	// +optional
+	AirflowSecretEnv []SecretEnv `json:"airflowsecret,omitempty"`
 }
 
 // AirflowClusterSpec defines the desired state of AirflowCluster

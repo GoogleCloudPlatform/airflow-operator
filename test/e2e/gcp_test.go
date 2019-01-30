@@ -147,4 +147,17 @@ var _ = Describe(CRName+" controller tests", func() {
 		deleteBase = true
 	})
 
+	It("creating a "+CRName+" with mysql, celery executor and gcs", func() {
+		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "mysql-celery/base.yaml"))
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-celery-gcs/cluster.yaml"))
+		basecr := basectx.CR.(*v1alpha1.AirflowBase)
+		cr := ctx.CR.(*v1alpha1.AirflowCluster)
+		By("creating a base " + basecr.Name)
+		basectx.CreateCR()
+		basectx.WithTimeout(200).CheckCR(isBaseReady)
+
+		By("creating a new " + CRName + ": " + cr.Name)
+		ctx.CreateCR()
+		checkCelery(cr)
+	})
 })

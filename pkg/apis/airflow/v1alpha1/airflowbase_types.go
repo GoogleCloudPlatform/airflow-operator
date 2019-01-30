@@ -345,6 +345,8 @@ type SQLProxySpec struct {
 	Region string `json:"region"`
 	// Instance defines the SQL instance name
 	Instance string `json:"instance"`
+	// Type defines the SQL instance type
+	Type string `json:"type"`
 	// Resources is the resource requests and limits for the pods.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`

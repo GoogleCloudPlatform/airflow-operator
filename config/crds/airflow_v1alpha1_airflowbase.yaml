@@ -95,12 +95,15 @@ spec:
                   type: string
                 resources:
                   type: object
+                type:
+                  type: string
                 version:
                   type: string
               required:
               - project
               - region
               - instance
+              - type
               type: object
             storage:
               properties:

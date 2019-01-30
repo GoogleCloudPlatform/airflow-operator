@@ -21,6 +21,7 @@ spec:
   sqlproxy:
           project: kubeflow-193622
           region: us-central1
-          instance: testsql-cluster
+          instance: airflow-test1
+          type: postgres
   storage:
     version: ""

@@ -52,11 +52,11 @@ spec:
         - $(SQL_INSTANCE)
         env:
         - name: SQL_INSTANCE
-          value: {{.Base.Spec.SQLProxy.Project}}:{{.Base.Spec.SQLProxy.Region}}:{{.Base.Spec.SQLProxy.Instance}}=tcp:0.0.0.0:3306
+          value: {{.Base.Spec.SQLProxy.Project}}:{{.Base.Spec.SQLProxy.Region}}:{{.Base.Spec.SQLProxy.Instance}}=tcp:0.0.0.0:{{index .Ports "sqlproxy"}}
         image: {{.Base.Spec.SQLProxy.Image}}:{{.Base.Spec.SQLProxy.Version}}
         imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 3306
+        - containerPort: {{index .Ports "sqlproxy"}}
           name: sqlproxy
           protocol: TCP
         resources: {}

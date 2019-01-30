@@ -71,6 +71,8 @@ const (
 	ValueAirflowComponentScheduler = "scheduler"
 	ValueAirflowComponentWorker    = "worker"
 	ValueAirflowComponentFlower    = "flower"
+	ValueSQLProxyTypeMySQL         = "mysql"
+	ValueSQLProxyTypePostgres      = "postgres"
 	LabelControllerVersion         = "airflow-controller-version"
 	LabelApp                       = "app"
 
@@ -139,7 +141,7 @@ func (r *AirflowCluster) getAirflowPrometheusEnv(base *AirflowBase) []corev1.Env
 	apd := ap + "DATABASE_"
 	backend := "mysql"
 	port := "3306"
-	if base.Spec.Postgres != nil {
+	if base.Spec.IsPostgres() {
 		backend = "postgres"
 		port = "5432"
 	}
@@ -171,7 +173,7 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 		}
 	}
 	dbType := "mysql"
-	if base.Spec.Postgres != nil {
+	if base.Spec.IsPostgres() {
 		dbType = "postgres"
 	}
 	env := []corev1.EnvVar{
@@ -304,8 +306,8 @@ func (r *AirflowCluster) addPostgresUserDBContainer(ss *appsv1.StatefulSet) {
 			Env:     env,
 			Command: []string{"/bin/bash"},
 			Args: []string{"-c", `
-PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREATE DATABASE $(SQL_DB)";
-PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U airflow -d testdb -c "CREATE USER $(SQL_USER) WITH ENCRYPTED PASSWORD '$(SQL_PASSWORD)'; GRANT ALL PRIVILEGES ON DATABASE $(SQL_DB) TO $(SQL_USER)"
+PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -c "CREATE DATABASE $(SQL_DB)";
+PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -c "CREATE USER $(SQL_USER) WITH ENCRYPTED PASSWORD '$(SQL_PASSWORD)'; GRANT ALL PRIVILEGES ON DATABASE $(SQL_DB) TO $(SQL_USER)"
 `},
 		},
 	}
@@ -554,7 +556,7 @@ func (s *AirflowUISpec) sts(v interface{}) (*resource.Item, error) {
 		sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.UI.Resources
 		sts.Spec.Template.Spec.Containers[0].Env = r.Cluster.getAirflowEnv(sts.Name, r.Base)
 		r.Cluster.addAirflowContainers(sts)
-		if r.Base.Spec.Postgres != nil {
+		if r.Base.Spec.IsPostgres() {
 			r.Cluster.addPostgresUserDBContainer(sts)
 		} else {
 			r.Cluster.addMySQLUserDBContainer(sts)
@@ -634,6 +636,10 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 	name := rsrcName(r.Name, ValueAirflowComponentSQL, "")
 	resources.Add(k8s.ReferredItem(&corev1.Secret{}, name, r.Namespace))
 
+	port := "3306"
+	if r.Spec.SQLProxy.Type == ValueSQLProxyTypePostgres {
+		port = "5432"
+	}
 	var ngdata = commonTmplValue{
 		Name:      rsrcName(r.Name, ValueAirflowComponentSQLProxy, ""),
 		Namespace: r.Namespace,
@@ -641,7 +647,7 @@ func (s *SQLProxySpec) ExpectedResources(rsrc interface{}, rsrclabels map[string
 		Base:      r,
 		Labels:    rsrclabels,
 		Selector:  rsrclabels,
-		Ports:     map[string]string{"sqlproxy": "3306"},
+		Ports:     map[string]string{"sqlproxy": port},
 	}
 
 	for _, fn := range []resource.GetItemFn{tmplsvc, s.sts} {
@@ -1104,6 +1110,18 @@ func (r *AirflowCluster) UpdateComponentStatus(rsrci, statusi interface{}, recon
 }
 
 // ---------------- Global AirflowBase component -------------------------
+
+// IsPostgres return true for postgres
+func (s *AirflowBaseSpec) IsPostgres() bool {
+	postgres := false
+	if s.Postgres != nil {
+		postgres = true
+	}
+	if s.SQLProxy != nil && s.SQLProxy.Type == ValueSQLProxyTypePostgres {
+		postgres = true
+	}
+	return postgres
+}
 
 // Mutate - mutate expected
 func (r *AirflowBase) Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {

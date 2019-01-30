@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package airflowcluster
+package gcp
 
 import (
 	"testing"
@@ -98,7 +98,9 @@ func checkCelery(cr *v1alpha1.AirflowCluster) {
 
 var _ = Describe(CRName+" controller tests", func() {
 	AfterEach(func() {
-		ctx.DeleteCR()
+		if ctx != nil {
+			ctx.DeleteCR()
+		}
 		if deleteBase {
 			deleteBase = false
 			basectx.DeleteCR()
@@ -107,63 +109,37 @@ var _ = Describe(CRName+" controller tests", func() {
 		ctx = nil
 	})
 
-	// Postgres
-	It("creating a "+CRName+" with postgres, celery executor", func() {
-		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "postgres-celery/base.yaml"))
-		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "postgres-celery/cluster.yaml"))
-		basecr := basectx.CR.(*v1alpha1.AirflowBase)
-		cr := ctx.CR.(*v1alpha1.AirflowCluster)
-		By("creating a base " + basecr.Name)
+	It("creating a "+CRName+" with cloudsql", func() {
+		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "cloudsql-celery/base.yaml"))
+		cr := basectx.CR.(*v1alpha1.AirflowBase)
+		By("creating a new " + CRName + ": " + cr.Name)
 		basectx.CreateCR()
-		basectx.WithTimeout(200).CheckCR(isBaseReady)
+		basectx.WithTimeout(200).CheckStatefulSet(cr.Name+"-sqlproxy", 1, 1)
+		basectx.WithTimeout(10).CheckService(cr.Name+"-sql", map[string]int32{"sqlproxy": 5432})
+		//basectx.WithTimeout(10).CheckSecret(name)
+		basectx.WithTimeout(200).CheckStatefulSet(cr.Name+"-nfs", 1, 1)
+		basectx.WithTimeout(100).CheckCR(isBaseReady)
+	})
 
+	// https://github.com/GoogleCloudPlatform/airflow-operator/issues/48
+	It("creating a "+CRName+" with cloudsql, celery executor", func() {
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-celery/cluster.yaml"))
+		cr := ctx.CR.(*v1alpha1.AirflowCluster)
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()
 		checkCelery(cr)
 	})
 
-	It("creating a "+CRName+" with postgres, local executor", func() {
-		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "postgres-local/cluster.yaml"))
+	It("creating a "+CRName+" with cloudsql, local executor", func() {
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-local/cluster.yaml"))
 		cr := ctx.CR.(*v1alpha1.AirflowCluster)
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()
 		checkLocal(cr)
 	})
 
-	It("creating a "+CRName+" with postgres, k8s executor", func() {
-		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "postgres-k8s/cluster.yaml"))
-		cr := ctx.CR.(*v1alpha1.AirflowCluster)
-		By("creating a new " + CRName + ": " + cr.Name)
-		ctx.CreateCR()
-		checkLocal(cr)
-		deleteBase = true
-	})
-
-	// Mysql
-	It("creating a "+CRName+" with mysql, celery executor", func() {
-		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "mysql-celery/base.yaml"))
-		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-celery/cluster.yaml"))
-		basecr := basectx.CR.(*v1alpha1.AirflowBase)
-		cr := ctx.CR.(*v1alpha1.AirflowCluster)
-		By("creating a base " + basecr.Name)
-		basectx.CreateCR()
-		basectx.WithTimeout(200).CheckCR(isBaseReady)
-
-		By("creating a new " + CRName + ": " + cr.Name)
-		ctx.CreateCR()
-		checkCelery(cr)
-	})
-
-	It("creating a "+CRName+" with mysql, local executor", func() {
-		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-local/cluster.yaml"))
-		cr := ctx.CR.(*v1alpha1.AirflowCluster)
-		By("creating a new " + CRName + ": " + cr.Name)
-		ctx.CreateCR()
-		checkLocal(cr)
-	})
-
-	It("creating a "+CRName+" with mysql, k8s executor", func() {
-		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "mysql-k8s/cluster.yaml"))
+	It("creating a "+CRName+" with cloudsql, k8s executor", func() {
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "cloudsql-k8s/cluster.yaml"))
 		cr := ctx.CR.(*v1alpha1.AirflowCluster)
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()

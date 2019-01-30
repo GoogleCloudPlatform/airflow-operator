@@ -72,6 +72,10 @@ docker-push: docker-build
 
 e2e-test:
 	kubectl get namespace airflowop-system || kubectl create namespace airflowop-system
-	kubectl apply -f hack/sample/cloudsql-celery/sqlproxy-secret.yaml -n airflowop-system
 	go test -v -timeout 20m test/e2e/base_test.go --namespace airflowop-system
 	go test -v -timeout 20m test/e2e/cluster_test.go --namespace airflowop-system
+
+e2e-test-gcp:
+	kubectl get namespace airflowop-system || kubectl create namespace airflowop-system
+	kubectl apply -f hack/sample/cloudsql-celery/sqlproxy-secret.yaml -n airflowop-system
+	go test -v -timeout 20m test/e2e/gcp_test.go --namespace airflowop-system

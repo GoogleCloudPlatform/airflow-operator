@@ -27,6 +27,9 @@ spec:
   ui:
     replicas: 1
     version: "1.10.2"
+  flower:
+    replicas: 1
+    version: "1.10.2"
   worker:
     replicas: 2
     version: "1.10.2"

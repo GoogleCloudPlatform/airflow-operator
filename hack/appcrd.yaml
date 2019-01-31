@@ -122,4 +122,5 @@ status:
   acceptedNames:
     kind: ""
     plural: ""
-  conditions: null
+  conditions: []
+  storedVersions: []

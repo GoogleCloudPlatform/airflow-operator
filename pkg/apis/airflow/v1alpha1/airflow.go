@@ -309,8 +309,8 @@ func (r *AirflowCluster) addPostgresUserDBContainer(ss *appsv1.StatefulSet) {
 			Env:     env,
 			Command: []string{"/bin/bash"},
 			Args: []string{"-c", `
-PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -c "CREATE DATABASE $(SQL_DB)";
-PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -c "CREATE USER $(SQL_USER) WITH ENCRYPTED PASSWORD '$(SQL_PASSWORD)'; GRANT ALL PRIVILEGES ON DATABASE $(SQL_DB) TO $(SQL_USER)"
+PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$(SQL_DB)'" | grep -q 1 || psql -h $SQL_HOST -U postgres -c "CREATE DATABASE $(SQL_DB)";
+PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$(SQL_DB)'" | grep -q 1 || psql -h $SQL_HOST -U postgres -c "CREATE USER $(SQL_USER) WITH ENCRYPTED PASSWORD '$(SQL_PASSWORD)'; GRANT ALL PRIVILEGES ON DATABASE $(SQL_DB) TO $(SQL_USER)"
 `},
 		},
 	}

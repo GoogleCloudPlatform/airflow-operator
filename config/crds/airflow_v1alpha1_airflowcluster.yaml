@@ -32,6 +32,10 @@ spec:
               properties:
                 airflow:
                   type: object
+                airflowsecret:
+                  items:
+                    type: object
+                  type: array
               type: object
             dags:
               properties:

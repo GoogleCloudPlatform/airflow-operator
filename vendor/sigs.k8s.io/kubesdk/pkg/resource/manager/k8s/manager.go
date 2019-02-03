@@ -87,9 +87,32 @@ type Object struct {
 	ObjList metav1.ListInterface
 }
 
+func isReferringSameObject(a, b metav1.OwnerReference) bool {
+	aGV, err := schema.ParseGroupVersion(a.APIVersion)
+	if err != nil {
+		return false
+	}
+	bGV, err := schema.ParseGroupVersion(b.APIVersion)
+	if err != nil {
+		return false
+	}
+	return aGV == bGV && a.Kind == b.Kind && a.Name == b.Name
+}
+
 // SetOwnerReferences - return name string
-func (o *Object) SetOwnerReferences(refs []metav1.OwnerReference) {
-	o.Obj.SetOwnerReferences(refs)
+func (o *Object) SetOwnerReferences(ref *metav1.OwnerReference) bool {
+	if ref == nil {
+		return false
+	}
+	objRefs := o.Obj.GetOwnerReferences()
+	for _, r := range objRefs {
+		if isReferringSameObject(*ref, r) {
+			return false
+		}
+	}
+	objRefs = append(objRefs, *ref)
+	o.Obj.SetOwnerReferences(objRefs)
+	return true
 }
 
 // IsSameAs - return name string
@@ -339,6 +362,7 @@ func Objs(b *resource.Bag) []metav1.Object {
 func CopyMutatedSpecFields(to *resource.Item, from *resource.Item) {
 	e := to.Obj.(*Object)
 	o := from.Obj.(*Object)
+	e.Obj.SetOwnerReferences(o.Obj.GetOwnerReferences())
 	e.Obj.SetResourceVersion(o.Obj.GetResourceVersion())
 	// TODO
 	switch e.Obj.(type) {

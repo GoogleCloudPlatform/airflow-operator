@@ -123,7 +123,7 @@ func (gr *Reconciler) observe(observables []resource.Observable) (*resource.Bag,
 }
 
 // ObserveAndMutate is a function that is called to observe and mutate expected resources
-func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, status interface{}, mutate bool, aggregated *resource.Bag) (*resource.Bag, *resource.Bag, string, error) {
+func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, status interface{}, mutate bool, aggregated *resource.Bag) (*resource.Bag, *resource.Bag, *resource.Bag, string, error) {
 	var err error
 	var expected, observed, dependent *resource.Bag
 
@@ -163,7 +163,7 @@ func (gr *Reconciler) ObserveAndMutate(crname string, c component.Component, sta
 	if observed == nil {
 		observed = &resource.Bag{}
 	}
-	return expected, observed, stage, err
+	return expected, observed, dependent, stage, err
 }
 
 // FinalizeComponent is a function that finalizes component
@@ -172,14 +172,14 @@ func (gr *Reconciler) FinalizeComponent(crname string, c component.Component, st
 	log.Printf("%s  { finalizing component\n", cname)
 	defer log.Printf("%s  } finalizing component\n", cname)
 
-	expected, observed, stage, err := gr.ObserveAndMutate(crname, c, status, false, aggregated)
+	expected, observed, dependent, stage, err := gr.ObserveAndMutate(crname, c, status, false, aggregated)
 
 	if err != nil {
 		HandleError(stage, crname, err)
 	}
 	aggregated.Add(expected.Items()...)
 	stage = "finalizing resource"
-	err = c.Finalize(status, observed)
+	err = c.Finalize(status, observed, dependent)
 	if err == nil {
 		stage = "finalizing deletion of objects"
 		for _, o := range observed.Items() {
@@ -213,7 +213,7 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 	log.Printf("%s  { reconciling component\n", cname)
 	defer log.Printf("%s  } reconciling component\n", cname)
 
-	expected, observed, stage, err := gr.ObserveAndMutate(crname, c, status, true, aggregated)
+	expected, observed, _, stage, err := gr.ObserveAndMutate(crname, c, status, true, aggregated)
 
 	// Reconciliation logic is straight-forward:
 	// This method gets the list of expected resources and observed resources
@@ -233,7 +233,6 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 		aggregated.Add(expected.Items()...)
 		log.Printf("%s  Expected Resources:\n", cname)
 		for _, e := range expected.Items() {
-			e.Obj.SetOwnerReferences(c.OwnerRef)
 			log.Printf("%s   exp: %s %s\n", cname, e.Type, e.Obj.GetName())
 		}
 		log.Printf("%s  Observed Resources:\n", cname)
@@ -247,27 +246,44 @@ func (gr *Reconciler) ReconcileComponent(crname string, c component.Component, s
 		seen := false
 		eRsrcName := e.Obj.GetName()
 		for _, o := range observed.Items() {
-			if e.Type == o.Type && e.Obj.IsSameAs(o.Obj) {
-				// rsrc is seen in both expected and observed, update it if needed
-				if rm, err := gr.itemMgr(e); err != nil {
-					errs = handleErrorArr("update", eRsrcName, err, errs)
-				} else if e.Lifecycle == resource.LifecycleManaged && rm.SpecDiffers(&e, &o) && c.Differs(e, o) {
-					if err := rm.Update(e); err != nil {
-						errs = handleErrorArr("update", eRsrcName, err, errs)
-					} else {
-						log.Printf("%s   update: %s\n", cname, eRsrcName)
-					}
-				} else {
-					log.Printf("%s   nochange: %s\n", cname, eRsrcName)
-				}
-				reconciled.Add(o)
-				seen = true
+			if e.Type != o.Type || !e.Obj.IsSameAs(o.Obj) {
+				continue
+			}
+			// rsrc is seen in both expected and observed, update it if needed
+			reconciled.Add(o)
+			seen = true
+
+			if e.Lifecycle != resource.LifecycleManaged {
+				log.Printf("%s   notmanaged: %s\n", cname, eRsrcName)
 				break
 			}
+
+			rm, err := gr.itemMgr(e)
+			if err != nil {
+				errs = handleErrorArr("update", eRsrcName, err, errs)
+				break
+			}
+
+			// Component Differs is not expected to mutate e based on o
+			compDiffers := c.Differs(e, o)
+			// Resource Manager Differs can mutate e based on o
+			rmDiffers := rm.SpecDiffers(&e, &o)
+			refchange := e.Obj.SetOwnerReferences(c.OwnerRef)
+			if rmDiffers && compDiffers || refchange {
+				if err := rm.Update(e); err != nil {
+					errs = handleErrorArr("update", eRsrcName, err, errs)
+				} else {
+					log.Printf("%s   update: %s\n", cname, eRsrcName)
+				}
+			} else {
+				log.Printf("%s   nochange: %s\n", cname, eRsrcName)
+			}
+			break
 		}
 		// rsrc is in expected but not in observed - create
 		if !seen {
 			if e.Lifecycle == resource.LifecycleManaged {
+				e.Obj.SetOwnerReferences(c.OwnerRef)
 				if rm, err := gr.itemMgr(e); err != nil {
 					errs = handleErrorArr("Create", cname, err, errs)
 				} else if err := rm.Create(e); err != nil {

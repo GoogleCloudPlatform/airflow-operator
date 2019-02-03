@@ -33,7 +33,7 @@ type Bag struct {
 type ObjectInterface interface {
 	GetName() string
 	IsSameAs(interface{}) bool
-	SetOwnerReferences([]metav1.OwnerReference)
+	SetOwnerReferences(*metav1.OwnerReference) bool
 }
 
 // Item is a container to capture the k8s resource info to be used by controller

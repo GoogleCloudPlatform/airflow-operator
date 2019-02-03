@@ -202,14 +202,12 @@ func (s *FooSpec) Mutate(rsrc interface{}, labels map[string]string, status inte
 }
 
 // OwnerRef returns owner ref object with the component's resource as owner
-func (r *Foo) OwnerRef() []metav1.OwnerReference {
-	return []metav1.OwnerReference{
-		*metav1.NewControllerRef(r, schema.GroupVersionKind{
-			Group:   "foobar",
-			Version: "v1alpha1",
-			Kind:    "Foo",
-		}),
-	}
+func (r *Foo) OwnerRef() *metav1.OwnerReference {
+	return metav1.NewControllerRef(r, schema.GroupVersionKind{
+		Group:   "foobar",
+		Version: "v1alpha1",
+		Kind:    "Foo",
+	})
 }
 
 // NewRsrc returns foo

@@ -98,13 +98,12 @@ func (c *Component) Differs(expected resource.Item, observed resource.Item) bool
 }
 
 // Finalize - Finalize component
-func (c *Component) Finalize(status interface{}, observed *resource.Bag) error {
+func (c *Component) Finalize(status interface{}, observed, dependent *resource.Bag) error {
 	if s, ok := c.Handle.(FinalizeInterface); ok {
-		return s.Finalize(c.CR, status, observed)
+		return s.Finalize(c.CR, status, observed, dependent)
 	}
-	if r, ok := c.CR.(metav1.Object); ok {
-		finalizer.RemoveStandard(r)
-	}
+	r := c.CR.(metav1.Object)
+	finalizer.RemoveStandard(r)
 	return nil
 }
 

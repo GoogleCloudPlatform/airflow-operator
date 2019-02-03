@@ -59,9 +59,7 @@ type Object struct {
 }
 
 // SetOwnerReferences - return name string
-func (o *Object) SetOwnerReferences(refs []metav1.OwnerReference) {
-	//TODO
-}
+func (o *Object) SetOwnerReferences(refs *metav1.OwnerReference) bool { return false }
 
 // IsSameAs - return name string
 func (o *Object) IsSameAs(a interface{}) bool {

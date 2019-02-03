@@ -31,7 +31,7 @@ type StatusInterface interface {
 
 // FinalizeInterface - finalize component
 type FinalizeInterface interface {
-	Finalize(rsrc, status interface{}, observed *resource.Bag) error
+	Finalize(rsrc, status interface{}, dependent, observed *resource.Bag) error
 }
 
 // DiffersInterface - call differs

@@ -559,14 +559,12 @@ func (b *AirflowBase) Components() []component.Component {
 }
 
 // OwnerRef returns owner ref object with the component's resource as owner
-func (b *AirflowBase) OwnerRef() []metav1.OwnerReference {
-	return []metav1.OwnerReference{
-		*metav1.NewControllerRef(b, schema.GroupVersionKind{
-			Group:   SchemeGroupVersion.Group,
-			Version: SchemeGroupVersion.Version,
-			Kind:    "AirflowBase",
-		}),
-	}
+func (b *AirflowBase) OwnerRef() *metav1.OwnerReference {
+	return metav1.NewControllerRef(b, schema.GroupVersionKind{
+		Group:   SchemeGroupVersion.Group,
+		Version: SchemeGroupVersion.Version,
+		Kind:    "AirflowBase",
+	})
 }
 
 // NewRsrc - return a new resource object

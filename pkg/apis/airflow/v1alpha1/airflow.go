@@ -167,9 +167,9 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 	dagFolder := AirflowDagsBase
 	if sp.DAGs != nil {
 		if sp.DAGs.Git != nil {
-			dagFolder = AirflowDagsBase + "/" + GitSyncDestDir + "/" + sp.DAGs.DagSubdir
+			dagFolder = AirflowDagsBase + GitSyncDestDir + "/" + sp.DAGs.DagSubdir
 		} else if sp.DAGs.GCS != nil {
-			dagFolder = AirflowDagsBase + "/" + GCSSyncDestDir + "/" + sp.DAGs.DagSubdir
+			dagFolder = AirflowDagsBase + GCSSyncDestDir + "/" + sp.DAGs.DagSubdir
 		}
 	}
 	dbType := "mysql"

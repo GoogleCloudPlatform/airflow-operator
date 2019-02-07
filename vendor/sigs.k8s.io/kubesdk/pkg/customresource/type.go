@@ -13,7 +13,7 @@ limitations under the License.
 
 package customresource
 
-// HandleValue is to add methods for an interface object
-type HandleValue struct {
+// CustomResource is to add methods for an interface object
+type CustomResource struct {
 	Handle
 }

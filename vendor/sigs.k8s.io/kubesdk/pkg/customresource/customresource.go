@@ -21,11 +21,26 @@ import (
 )
 
 // Labels return custom resource label
-func (hv *HandleValue) Labels() map[string]string {
-	c := hv.Handle.(metav1.Object)
+func (cr *CustomResource) Labels() map[string]string {
+	c := cr.Handle.(metav1.Object)
 	return map[string]string{
 		component.LabelCR:          strings.Trim(reflect.TypeOf(c).String(), "*"),
 		component.LabelCRName:      c.GetName(),
 		component.LabelCRNamespace: c.GetNamespace(),
+	}
+}
+
+// Validate pass through
+func (cr *CustomResource) Validate() error {
+	if s, ok := cr.Handle.(ValidateInterface); ok {
+		return s.Validate()
+	}
+	return nil
+}
+
+// ApplyDefaults pass through
+func (cr *CustomResource) ApplyDefaults() {
+	if s, ok := cr.Handle.(ApplyDefaultsInterface); ok {
+		s.ApplyDefaults()
 	}
 }

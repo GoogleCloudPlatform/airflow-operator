@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/kubesdk/pkg/component"
-	cr "sigs.k8s.io/kubesdk/pkg/customresource"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -466,21 +465,16 @@ func (b *AirflowBase) ApplyDefaults() {
 			b.Spec.SQLProxy.Version = defaultSQLProxyVersion
 		}
 	}
+	b.Status.ComponentList = status.ComponentList{}
 }
 
-// UpdateRsrcStatus records status or error in status
-func (b *AirflowBase) UpdateRsrcStatus(status interface{}, err error) bool {
-	esstatus := status.(*AirflowBaseStatus)
-	if status != nil {
-		b.Status = *esstatus
-	}
-
+// HandleError records status or error in status
+func (b *AirflowBase) HandleError(err error) {
 	if err != nil {
 		b.Status.SetError("ErrorSeen", err.Error())
 	} else {
 		b.Status.ClearError()
 	}
-	return true
 }
 
 // Validate the AirflowBase
@@ -565,23 +559,6 @@ func (b *AirflowBase) OwnerRef() *metav1.OwnerReference {
 		Version: SchemeGroupVersion.Version,
 		Kind:    "AirflowBase",
 	})
-}
-
-// NewRsrc - return a new resource object
-func (b *AirflowBase) NewRsrc() cr.Handle {
-	return &AirflowBase{}
-}
-
-// NewStatus - return a  resource status object
-func (b *AirflowBase) NewStatus() interface{} {
-	s := b.Status.DeepCopy()
-	s.ComponentList = status.ComponentList{}
-	return s
-}
-
-// StatusDiffers returns True if there is a change in status
-func (b *AirflowBase) StatusDiffers(new AirflowBaseStatus) bool {
-	return true
 }
 
 // NewAirflowBase return a defaults filled AirflowBase object

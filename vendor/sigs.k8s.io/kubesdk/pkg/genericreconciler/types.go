@@ -25,7 +25,7 @@ var _ reconcile.Reconciler = &Reconciler{}
 // Reconciler defines fields needed for all airflow controllers
 // +k8s:deepcopy-gen=false
 type Reconciler struct {
-	Handle  cr.Handle
+	CR      cr.CustomResource
 	Manager manager.Manager
 	RsrcMgr rm.ResourceManager
 }
@@ -37,3 +37,15 @@ type ReconcilerConfig struct {
 
 // KVmap is a map[string]string
 type KVmap map[string]string
+
+// WithManager - add manager
+func (gr *Reconciler) WithManager(m manager.Manager) *Reconciler {
+	gr.Manager = m
+	return gr
+}
+
+// WithCR - add CR Handle
+func (gr *Reconciler) WithCR(h cr.Handle) *Reconciler {
+	gr.CR = cr.CustomResource{Handle: h}
+	return gr
+}

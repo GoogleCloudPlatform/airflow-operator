@@ -423,10 +423,10 @@ func (s *MySQLSpec) Differs(expected resource.Item, observed resource.Item) bool
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *MySQLSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *MySQLSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowBaseStatus)
+		stts := &rsrci.(*AirflowBase).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -486,10 +486,10 @@ func (s *PostgresSpec) Differs(expected resource.Item, observed resource.Item) b
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *PostgresSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *PostgresSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowBaseStatus)
+		stts := &rsrci.(*AirflowBase).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -541,10 +541,10 @@ func (s *AirflowUISpec) Differs(expected resource.Item, observed resource.Item) 
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *AirflowUISpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *AirflowUISpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowClusterStatus)
+		stts := &rsrci.(*AirflowCluster).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -614,10 +614,10 @@ func (s *NFSStoreSpec) Differs(expected resource.Item, observed resource.Item) b
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *NFSStoreSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *NFSStoreSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowBaseStatus)
+		stts := &rsrci.(*AirflowBase).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -669,10 +669,10 @@ func (s *SQLProxySpec) Differs(expected resource.Item, observed resource.Item) b
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *SQLProxySpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *SQLProxySpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowBaseStatus)
+		stts := &rsrci.(*AirflowBase).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -731,10 +731,10 @@ func (s *RedisSpec) Differs(expected resource.Item, observed resource.Item) bool
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *RedisSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *RedisSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowClusterStatus)
+		stts := &rsrci.(*AirflowCluster).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -925,10 +925,10 @@ func (s *SchedulerSpec) Differs(expected resource.Item, observed resource.Item) 
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *SchedulerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *SchedulerSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowClusterStatus)
+		stts := &rsrci.(*AirflowCluster).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -986,10 +986,10 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *WorkerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *WorkerSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowClusterStatus)
+		stts := &rsrci.(*AirflowCluster).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -1037,10 +1037,10 @@ func (s *FlowerSpec) Differs(expected resource.Item, observed resource.Item) boo
 }
 
 // UpdateComponentStatus use reconciled objects to update component status
-func (s *FlowerSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (s *FlowerSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := statusi.(*AirflowClusterStatus)
+		stts := &rsrci.(*AirflowCluster).Status
 		ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
 		stts.Meta.UpdateStatus(&ready, err)
 	}
@@ -1106,12 +1106,6 @@ func (r *AirflowCluster) ExpectedResources(rsrc interface{}, rsrclabels map[stri
 	return resources, nil
 }
 
-// UpdateComponentStatus use reconciled objects to update component status
-func (r *AirflowCluster) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
-	var period time.Duration
-	return period
-}
-
 // ---------------- Global AirflowBase component -------------------------
 
 // IsPostgres return true for postgres
@@ -1169,10 +1163,4 @@ func (r *AirflowBase) ExpectedResources(rsrc interface{}, rsrclabels map[string]
 		resources.Add(*rinfo)
 	}
 	return resources, nil
-}
-
-// UpdateComponentStatus use reconciled objects to update component status
-func (r *AirflowBase) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) time.Duration {
-	var period time.Duration
-	return period
 }

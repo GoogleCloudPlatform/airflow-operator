@@ -36,8 +36,14 @@ type RsrcManager struct {
 }
 
 // NewRsrcManager returns nil manager
-func NewRsrcManager() *RsrcManager {
-	return &RsrcManager{}
+func NewRsrcManager(ctx context.Context, name string) (*RsrcManager, error) {
+	rm := &RsrcManager{}
+	service, err := NewService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rm.WithService(service).WithName(name)
+	return rm, nil
 }
 
 // WithName adds name

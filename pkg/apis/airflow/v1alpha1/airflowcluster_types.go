@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/kubesdk/pkg/component"
-	cr "sigs.k8s.io/kubesdk/pkg/customresource"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -390,22 +389,16 @@ func (b *AirflowCluster) ApplyDefaults() {
 			}
 		}
 	}
+	b.Status.ComponentList = status.ComponentList{}
 }
 
-// UpdateRsrcStatus records status or error in status
-func (b *AirflowCluster) UpdateRsrcStatus(status interface{}, err error) bool {
-	esstatus := status.(*AirflowClusterStatus)
-	if status != nil {
-		b.Status = *esstatus
-	}
-
+// HandleError records status or error in status
+func (b *AirflowCluster) HandleError(err error) {
 	if err != nil {
 		b.Status.SetError("ErrorSeen", err.Error())
 	} else {
 		b.Status.ClearError()
 	}
-	// TODO use err
-	return true
 }
 
 // Validate the AirflowCluster
@@ -524,22 +517,7 @@ func (b *AirflowCluster) OwnerRef() *metav1.OwnerReference {
 	})
 }
 
-// NewRsrc - return a new resource object
-func (b *AirflowCluster) NewRsrc() cr.Handle {
-	return &AirflowCluster{}
-}
-
-// NewStatus - return a  resource status object
-func (b *AirflowCluster) NewStatus() interface{} {
-	s := b.Status.DeepCopy()
-	s.ComponentList = status.ComponentList{}
-	return s
-}
-
-// StatusDiffers returns True if there is a change in status
-func (b *AirflowCluster) StatusDiffers(new AirflowClusterStatus) bool {
-	return true
-}
+// TODOs.ComponentList = status.ComponentList{}
 
 // NewAirflowCluster return a defaults filled AirflowCluster object
 func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *AirflowCluster {

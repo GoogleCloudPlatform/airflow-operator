@@ -26,12 +26,12 @@ type Handle interface {
 
 // StatusInterface - interface to update compoennt status
 type StatusInterface interface {
-	UpdateComponentStatus(rsrc, status interface{}, reconciled *resource.Bag, err error) time.Duration
+	UpdateComponentStatus(rsrc interface{}, reconciled *resource.Bag, err error) time.Duration
 }
 
 // FinalizeInterface - finalize component
 type FinalizeInterface interface {
-	Finalize(rsrc, status interface{}, dependent, observed *resource.Bag) error
+	Finalize(rsrc interface{}, dependent, observed *resource.Bag) error
 }
 
 // DiffersInterface - call differs
@@ -46,7 +46,7 @@ type DependentResourcesInterface interface {
 
 // MutateInterface - interface to mutate objects
 type MutateInterface interface {
-	Mutate(rsrc interface{}, rsrclabels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error)
+	Mutate(rsrc interface{}, rsrclabels map[string]string, expected, dependent, observed *resource.Bag) (*resource.Bag, error)
 }
 
 // ObservablesInterface - interface to get observables

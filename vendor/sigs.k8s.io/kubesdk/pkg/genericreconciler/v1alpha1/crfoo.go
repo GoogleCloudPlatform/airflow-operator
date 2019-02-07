@@ -26,7 +26,6 @@ import (
 	"log"
 	crscheme "sigs.k8s.io/controller-runtime/pkg/runtime/scheme"
 	"sigs.k8s.io/kubesdk/pkg/component"
-	cr "sigs.k8s.io/kubesdk/pkg/customresource"
 	"sigs.k8s.io/kubesdk/pkg/resource"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
@@ -137,14 +136,10 @@ func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}
 	}
 }
 
-// Differs - return true or false
-func (s *FooSpec) Differs(expected metav1.Object, observed metav1.Object) bool {
-	return true
-}
-
 // UpdateComponentStatus - update status block
-func (s *FooSpec) UpdateComponentStatus(rsrci, statusi interface{}, reconciled *resource.Bag, err error) {
-	rsrcstatus := statusi.(*FooStatus)
+func (s *FooSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) {
+	rsrc := rsrci.(*Foo)
+	rsrcstatus := &rsrc.Status
 	rsrcstatus.Component = "base " + status.StatusReady
 }
 
@@ -165,13 +160,8 @@ func (r *Foo) Validate() error {
 	return nil
 }
 
-// UpdateRsrcStatus records status or error in status
-func (r *Foo) UpdateRsrcStatus(status interface{}, err error) bool {
-	foostatus := status.(*FooStatus)
-	if status != nil {
-		r.Status = *foostatus
-	}
-	return true
+// HandleError records status or error in status
+func (r *Foo) HandleError(err error) {
 }
 
 // Application return app obj
@@ -191,16 +181,6 @@ func (r *Foo) Components() []component.Component {
 	}
 }
 
-// DependantResources - return deps
-func (s *FooSpec) DependantResources(rsrc interface{}) *resource.Bag {
-	return &resource.Bag{}
-}
-
-// Mutate - mutate objects
-func (s *FooSpec) Mutate(rsrc interface{}, labels map[string]string, status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
-	return expected, nil
-}
-
 // OwnerRef returns owner ref object with the component's resource as owner
 func (r *Foo) OwnerRef() *metav1.OwnerReference {
 	return metav1.NewControllerRef(r, schema.GroupVersionKind{
@@ -208,21 +188,6 @@ func (r *Foo) OwnerRef() *metav1.OwnerReference {
 		Version: "v1alpha1",
 		Kind:    "Foo",
 	})
-}
-
-// NewRsrc returns foo
-func (r *Foo) NewRsrc() cr.Handle {
-	return &Foo{}
-}
-
-// NewStatus returns status
-func (r *Foo) NewStatus() interface{} {
-	return &FooStatus{Status: status.StatusReady}
-}
-
-// Finalize function
-func (s *FooSpec) Finalize(rsrc, status interface{}, observed *resource.Bag) error {
-	return nil
 }
 
 func init() {

@@ -56,17 +56,17 @@ func (out KVMap) Merge(kvmaps ...KVMap) {
 }
 
 // DependentResources Get dependent resources from component or defaults
-func (c *Component) DependentResources(rsrc interface{}) *resource.Bag {
+func (c *Component) DependentResources() *resource.Bag {
 	if s, ok := c.Handle.(DependentResourcesInterface); ok {
-		return s.DependentResources(rsrc)
+		return s.DependentResources(c.CR)
 	}
 	return &resource.Bag{}
 }
 
 // Mutate Get dependent resources from component or defaults
-func (c *Component) Mutate(status interface{}, expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
+func (c *Component) Mutate(expected, dependent, observed *resource.Bag) (*resource.Bag, error) {
 	if s, ok := c.Handle.(MutateInterface); ok {
-		return s.Mutate(c.CR, c.Labels(), status, expected, dependent, observed)
+		return s.Mutate(c.CR, c.Labels(), expected, dependent, observed)
 	}
 	return expected, nil
 }
@@ -98,9 +98,9 @@ func (c *Component) Differs(expected resource.Item, observed resource.Item) bool
 }
 
 // Finalize - Finalize component
-func (c *Component) Finalize(status interface{}, observed, dependent *resource.Bag) error {
+func (c *Component) Finalize(observed, dependent *resource.Bag) error {
 	if s, ok := c.Handle.(FinalizeInterface); ok {
-		return s.Finalize(c.CR, status, observed, dependent)
+		return s.Finalize(c.CR, observed, dependent)
 	}
 	r := c.CR.(metav1.Object)
 	finalizer.RemoveStandard(r)
@@ -108,10 +108,10 @@ func (c *Component) Finalize(status interface{}, observed, dependent *resource.B
 }
 
 // UpdateComponentStatus - update component status
-func (c *Component) UpdateComponentStatus(status interface{}, reconciled *resource.Bag, err error) time.Duration {
+func (c *Component) UpdateComponentStatus(reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s, ok := c.Handle.(StatusInterface); ok {
-		return s.UpdateComponentStatus(c.CR, status, reconciled, err)
+		return s.UpdateComponentStatus(c.CR, reconciled, err)
 	}
 	return period
 }

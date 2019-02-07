@@ -32,7 +32,7 @@ func CreateController(name string, mgr manager.Manager, handle cr.Handle, r reco
 	}
 
 	// Watch for changes to Base resource
-	err = c.Watch(&source.Kind{Type: handle.NewRsrc().(runtime.Object)},
+	err = c.Watch(&source.Kind{Type: handle.(runtime.Object)},
 		&handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err

@@ -32,10 +32,7 @@ func Add(mgr manager.Manager) error {
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	r := &reconciler.Reconciler{
-		Manager: mgr, // why do we need manager ?
-		Handle:  &airflowv1alpha1.AirflowCluster{},
-	}
-	r.Init()
+	r := &reconciler.Reconciler{}
+	r.WithManager(mgr).WithCR(&airflowv1alpha1.AirflowCluster{}).Init()
 	return r
 }

@@ -19,10 +19,16 @@ import (
 
 // Handle is an interface for operating on CRs
 type Handle interface {
-	ApplyDefaults()
-	Validate() error
+	HandleError(error)
 	Components() []component.Component
-	UpdateRsrcStatus(interface{}, error) bool
-	NewRsrc() Handle
-	NewStatus() interface{}
+}
+
+// ValidateInterface - optional interface
+type ValidateInterface interface {
+	Validate() error
+}
+
+// ApplyDefaultsInterface - optional interface
+type ApplyDefaultsInterface interface {
+	ApplyDefaults()
 }

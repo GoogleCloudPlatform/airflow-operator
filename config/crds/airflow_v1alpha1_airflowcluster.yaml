@@ -105,6 +105,12 @@ spec:
                   type: string
                 operator:
                   type: boolean
+                redisHost:
+                  type: string
+                redisPassword:
+                  type: boolean
+                redisPort:
+                  type: string
                 resources:
                   type: object
                 version:

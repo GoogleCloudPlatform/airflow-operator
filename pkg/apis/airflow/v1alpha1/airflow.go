@@ -220,12 +220,27 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 		// dags_volume_claim =
 	}
 	if sp.Executor == ExecutorCelery {
-		env = append(env,
-			[]corev1.EnvVar{
-				{Name: "REDIS_PASSWORD",
-					ValueFrom: envFromSecret(redisSecret, "password")},
-				{Name: "REDIS_HOST", Value: redisSvcName},
-			}...)
+		if r.Spec.Redis.RedisHost == "" {
+			env = append(env,
+				[]corev1.EnvVar{
+					{Name: "REDIS_PASSWORD",
+						ValueFrom: envFromSecret(redisSecret, "password")},
+					{Name: "REDIS_HOST", Value: redisSvcName},
+				}...)
+		} else {
+			env = append(env,
+				[]corev1.EnvVar{
+					{Name: "REDIS_HOST", Value: r.Spec.Redis.RedisHost},
+					{Name: "REDIS_PORT", Value: r.Spec.Redis.RedisPort},
+				}...)
+			if r.Spec.Redis.RedisPassword == true {
+				env = append(env,
+					[]corev1.EnvVar{
+						{Name: "REDIS_PASSWORD",
+							ValueFrom: envFromSecret(redisSecret, "password")},
+					}...)
+			}
+		}
 	}
 
 	// Do sorted key scan. To store the keys in slice in sorted order
@@ -700,6 +715,11 @@ func (s *RedisSpec) sts(v interface{}) (*resource.Item, error) {
 func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
+
+	if r.Spec.Redis.RedisHost != "" {
+		return resources, nil
+	}
+
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentRedis, ""),
 		Namespace:  r.Namespace,

@@ -29,6 +29,7 @@ import (
 const (
 	defaultRedisImage       = "redis"
 	defaultRedisVersion     = "4.0"
+	defaultRedisPort        = "6379"
 	defaultWorkerImage      = "gcr.io/airflow-operator/airflow"
 	defaultSchedulerImage   = "gcr.io/airflow-operator/airflow"
 	defaultFlowerImage      = "gcr.io/airflow-operator/airflow"
@@ -60,6 +61,12 @@ type RedisSpec struct {
 	// If False, a StatefulSet with 1 replica is created
 	// +optional
 	Operator bool `json:"operator,omitempty"`
+	// Hostname or IP of existing Redis instance
+	RedisHost string `json:"redisHost,omitempty"`
+	// Port of existing Redis instance
+	RedisPort string `json:"redisPort,omitempty"`
+	// If the existing Redis instance uses password or not, as MemoryStore doesn't support password yet
+	RedisPassword bool `json:"redisPassword,omitempty"`
 	// Resources is the resource requests and limits for the pods.
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 	// VolumeClaimTemplate allows a user to specify volume claim for MySQL Server files
@@ -328,6 +335,16 @@ func (b *AirflowCluster) ApplyDefaults() {
 		if b.Spec.Redis.Version == "" {
 			b.Spec.Redis.Version = defaultRedisVersion
 		}
+		if b.Spec.Redis.RedisHost == "" {
+			if b.Spec.Redis.Image == "" {
+				b.Spec.Redis.Image = defaultRedisImage
+			}
+			if b.Spec.Redis.Version == "" {
+				b.Spec.Redis.Version = defaultRedisVersion
+			}
+		} else if b.Spec.Redis.RedisPort == "" {
+			b.Spec.Redis.RedisPort = defaultRedisPort
+		}
 	}
 	if b.Spec.Scheduler != nil {
 		if b.Spec.Scheduler.Image == "" {
@@ -407,7 +424,7 @@ func (b *AirflowCluster) Validate() error {
 	spec := field.NewPath("spec")
 
 	errs = append(errs, b.Spec.Redis.validate(spec.Child("redis"))...)
-	errs = append(errs, b.Spec.Scheduler.validate(spec.Child("scehduler"))...)
+	errs = append(errs, b.Spec.Scheduler.validate(spec.Child("scheduler"))...)
 	errs = append(errs, b.Spec.Worker.validate(spec.Child("worker"))...)
 	errs = append(errs, b.Spec.DAGs.validate(spec.Child("dags"))...)
 	errs = append(errs, b.Spec.UI.validate(spec.Child("ui"))...)

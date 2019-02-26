@@ -26,9 +26,12 @@ import (
 	"sigs.k8s.io/kubesdk/pkg/application"
 	"sigs.k8s.io/kubesdk/pkg/component"
 	"sigs.k8s.io/kubesdk/pkg/resource"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp/redis"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -54,27 +57,28 @@ const (
 	ActionCreate = "create"
 	ActionDelete = "delete"
 
-	LabelAirflowCR                 = "airflow-cr"
-	ValueAirflowCRBase             = "airflow-base"
-	ValueAirflowCRCluster          = "airflow-cluster"
-	LabelAirflowCRName             = "airflow-cr-name"
-	LabelAirflowComponent          = "airflow-component"
-	ValueAirflowComponentMySQL     = "mysql"
-	ValueAirflowComponentPostgres  = "postgres"
-	ValueAirflowComponentSQLProxy  = "sqlproxy"
-	ValueAirflowComponentBase      = "base"
-	ValueAirflowComponentCluster   = "cluster"
-	ValueAirflowComponentSQL       = "sql"
-	ValueAirflowComponentUI        = "airflowui"
-	ValueAirflowComponentNFS       = "nfs"
-	ValueAirflowComponentRedis     = "redis"
-	ValueAirflowComponentScheduler = "scheduler"
-	ValueAirflowComponentWorker    = "worker"
-	ValueAirflowComponentFlower    = "flower"
-	ValueSQLProxyTypeMySQL         = "mysql"
-	ValueSQLProxyTypePostgres      = "postgres"
-	LabelControllerVersion         = "airflow-controller-version"
-	LabelApp                       = "app"
+	LabelAirflowCR                   = "airflow-cr"
+	ValueAirflowCRBase               = "airflow-base"
+	ValueAirflowCRCluster            = "airflow-cluster"
+	LabelAirflowCRName               = "airflow-cr-name"
+	LabelAirflowComponent            = "airflow-component"
+	ValueAirflowComponentMySQL       = "mysql"
+	ValueAirflowComponentPostgres    = "postgres"
+	ValueAirflowComponentSQLProxy    = "sqlproxy"
+	ValueAirflowComponentBase        = "base"
+	ValueAirflowComponentCluster     = "cluster"
+	ValueAirflowComponentSQL         = "sql"
+	ValueAirflowComponentUI          = "airflowui"
+	ValueAirflowComponentNFS         = "nfs"
+	ValueAirflowComponentMemoryStore = "redis"
+	ValueAirflowComponentRedis       = "redis"
+	ValueAirflowComponentScheduler   = "scheduler"
+	ValueAirflowComponentWorker      = "worker"
+	ValueAirflowComponentFlower      = "flower"
+	ValueSQLProxyTypeMySQL           = "mysql"
+	ValueSQLProxyTypePostgres        = "postgres"
+	LabelControllerVersion           = "airflow-controller-version"
+	LabelApp                         = "app"
 
 	KindAirflowBase    = "AirflowBase"
 	KindAirflowCluster = "AirflowCluster"
@@ -161,9 +165,13 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 	sp := r.Spec
 	sqlSvcName := rsrcName(sp.AirflowBaseRef.Name, ValueAirflowComponentSQL, "")
 	sqlSecret := rsrcName(r.Name, ValueAirflowComponentUI, "")
-	redisSecret := rsrcName(r.Name, ValueAirflowComponentRedis, "")
 	schedulerConfigmap := rsrcName(r.Name, ValueAirflowComponentScheduler, "")
-	redisSvcName := redisSecret
+	redisSecret := ""
+	redisSvcName := ""
+	if sp.MemoryStore == nil {
+		redisSecret = rsrcName(r.Name, ValueAirflowComponentRedis, "")
+		redisSvcName = redisSecret
+	}
 	dagFolder := AirflowDagsBase
 	if sp.DAGs != nil {
 		if sp.DAGs.Git != nil {
@@ -220,7 +228,13 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 		// dags_volume_claim =
 	}
 	if sp.Executor == ExecutorCelery {
-		if r.Spec.Redis.RedisHost == "" {
+		if sp.MemoryStore != nil {
+			env = append(env,
+				[]corev1.EnvVar{
+					{Name: "REDIS_HOST", Value: sp.MemoryStore.Host},
+					{Name: "REDIS_PORT", Value: strconv.FormatInt(sp.MemoryStore.Port, 10)},
+				}...)
+		} else if r.Spec.Redis.RedisHost == "" {
 			env = append(env,
 				[]corev1.EnvVar{
 					{Name: "REDIS_PASSWORD",
@@ -523,6 +537,11 @@ func (s *AirflowUISpec) DependentResources(rsrc interface{}) *resource.Bag {
 func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
+
+	if r.Spec.MemoryStore.Host == "" {
+		return resources, nil
+	}
+
 	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	var ngdata = commonTmplValue{
@@ -716,10 +735,6 @@ func (s *RedisSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]st
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.Redis.RedisHost != "" {
-		return resources, nil
-	}
-
 	var ngdata = commonTmplValue{
 		Name:       rsrcName(r.Name, ValueAirflowComponentRedis, ""),
 		Namespace:  r.Namespace,
@@ -880,6 +895,11 @@ func (s *SchedulerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
+
+	if r.Spec.MemoryStore.Host == "" {
+		return resources, nil
+	}
+
 	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	if r.Spec.DAGs != nil {
@@ -981,6 +1001,11 @@ func (s *WorkerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
+
+	if r.Spec.MemoryStore.Host == "" {
+		return resources, nil
+	}
+
 	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	var ngdata = commonTmplValue{
@@ -1028,6 +1053,11 @@ func (s *FlowerSpec) DependentResources(rsrc interface{}) *resource.Bag {
 func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
+
+	if r.Spec.MemoryStore.Host == "" {
+		return resources, nil
+	}
+
 	b := k8s.GetItem(dependent, &AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*AirflowBase)
 	var ngdata = commonTmplValue{
@@ -1077,6 +1107,82 @@ func (s *FlowerSpec) sts(v interface{}) (*resource.Item, error) {
 		r.Cluster.addAirflowContainers(sts)
 	}
 	return o, err
+}
+
+// ------------------------------ MemoryStore ---------------------------------------
+
+// DependentResources - return dependant resources
+func (s *MemoryStoreSpec) DependentResources(rsrc interface{}) *resource.Bag {
+	r := rsrc.(*AirflowCluster)
+	return r.dependantResources()
+}
+
+// ExpectedResources - returns resources
+func (s *MemoryStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregated *resource.Bag) (*resource.Bag, error) {
+	var resources *resource.Bag = new(resource.Bag)
+	r := rsrc.(*AirflowCluster)
+	splits := strings.Split(s.Region, "-")
+	region := splits[0] + "-" + splits[1]
+	parent := fmt.Sprintf("projects/%v/locations/%v", s.Project, region)
+	obj := redis.NewObject(parent, r.Name+"-redis")
+	robj := obj.Obj
+	robj.AlternativeLocationId = s.AlternativeLocationId
+	robj.AuthorizedNetwork = s.AuthorizedNetwork
+	robj.DisplayName = s.DisplayName
+	robj.Labels = gcp.CompliantLabelMap(rsrclabels)
+
+	if s.NotifyKeyspaceEvents != "" {
+		if robj.RedisConfigs == nil {
+			robj.RedisConfigs = make(map[string]string)
+		}
+		robj.RedisConfigs["notify-keyspace-events"] = s.NotifyKeyspaceEvents
+	}
+
+	if s.MaxMemoryPolicy != "" {
+		if robj.RedisConfigs == nil {
+			robj.RedisConfigs = make(map[string]string)
+		}
+		robj.RedisConfigs["maxmemory-policy"] = s.MaxMemoryPolicy
+	}
+
+	robj.RedisVersion = s.RedisVersion
+	robj.MemorySizeGb = int64(s.MemorySizeGb)
+	robj.Tier = strings.ToUpper(s.Tier)
+
+	resources.Add(*obj.AsItem())
+	return resources, nil
+}
+
+// UpdateComponentStatus - update status block
+func (s *MemoryStoreSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
+	var period time.Duration
+	if s != nil {
+		stts := &rsrci.(*AirflowCluster).Status
+		ready := false
+		if len(reconciled.Items()) != 0 {
+			instance := reconciled.Items()[0].Obj.(*redis.Object).Obj
+			s.CreateTime = instance.CreateTime
+			s.CurrentLocationId = instance.CurrentLocationId
+			s.Host = instance.Host
+			s.Port = instance.Port
+			s.State = instance.State
+			if instance.State != "READY" && instance.State != "MAINTENANCE" {
+				period = time.Second * 30
+			}
+			s.StatusMessage = instance.StatusMessage
+			ready = true
+			stts.Meta.UpdateStatus(&ready, err)
+		} else {
+			period = time.Second * 30
+			stts.Meta.UpdateStatus(&ready, err)
+		}
+	}
+	return period
+}
+
+// Differs returns true if the resource needs to be updated
+func (s *MemoryStoreSpec) Differs(expected resource.Item, observed resource.Item) bool {
+	return true //differs(expected, observed)
 }
 
 // ---------------- Global AirflowCluster component -------------------------

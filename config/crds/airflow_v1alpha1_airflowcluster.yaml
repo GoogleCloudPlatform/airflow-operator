@@ -95,6 +95,54 @@ spec:
               type: object
             labels:
               type: object
+            memoryStore:
+              properties:
+                alternativeLocationId:
+                  type: string
+                authorizedNetwork:
+                  type: string
+                createTime:
+                  type: string
+                currentLocationId:
+                  type: string
+                displayName:
+                  type: string
+                host:
+                  type: string
+                labels:
+                  type: object
+                locationId:
+                  type: string
+                maxMemoryPolicy:
+                  type: string
+                memorySizeGb:
+                  format: int64
+                  type: integer
+                name:
+                  type: string
+                notifyKeyspaceEvents:
+                  type: string
+                port:
+                  format: int64
+                  type: integer
+                project:
+                  type: string
+                redisConfigs:
+                  type: object
+                redisVersion:
+                  type: string
+                region:
+                  type: string
+                state:
+                  type: string
+                statusMessage:
+                  type: string
+                tier:
+                  type: string
+              required:
+              - project
+              - region
+              type: object
             nodeSelector:
               type: object
             redis:

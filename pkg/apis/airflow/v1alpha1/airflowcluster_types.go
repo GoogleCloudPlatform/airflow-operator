@@ -49,6 +49,97 @@ const (
 
 var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCelery, ExecutorK8s}
 
+// MemoryStoreSpec defines the attributes and desired state of MemoryStore component
+type MemoryStoreSpec struct {
+	// Project defines the SQL instance project
+	Project string `json:"project"`
+	// Region defines the SQL instance region
+	Region string `json:"region"`
+	// AlternativeLocationId
+	// +optional.
+	AlternativeLocationId string `json:"alternativeLocationId,omitempty"`
+	// AuthorizedNetwork
+	// +optional.
+	AuthorizedNetwork string `json:"authorizedNetwork,omitempty"`
+	// DisplayName: An arbitrary and user-provided name for the instance.
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
+	// Labels: Resource labels to represent user provided metadata
+	Labels map[string]string `json:"labels,omitempty"`
+	// LocationId: The zone where the instance will be provisioned.
+	// +optional
+	LocationId string `json:"locationId,omitempty"`
+	// MemorySizeGb: Required. Redis memory size in GiB.
+	MemorySizeGb int64 `json:"memorySizeGb,omitempty"`
+	// Name: Required. Unique name of the resource in this scope including project and
+	// location using the form: `projects/{project_id}/locations/{location_id}/instances/{instance_id}`
+	Name string `json:"name,omitempty"`
+	// RedisConfigs: Optional. Redis configuration parameters
+	RedisConfigs map[string]string `json:"redisConfigs,omitempty"`
+	// RedisVersion: Optional. The version of Redis software.
+	RedisVersion string `json:"redisVersion,omitempty"`
+	// Tier: Required. The service tier of the instance.
+	Tier string `json:"tier,omitempty"`
+	// CreateTime: Output only. The time the instance was created.
+	CreateTime string `json:"createTime,omitempty"`
+	// CurrentLocationId: Output only. The current zone where the Redis
+	// endpoint is placed.
+	CurrentLocationId string `json:"currentLocationId,omitempty"`
+	// StatusMessage: Output only. Additional information about the current
+	// status of this instance, if available.
+	StatusMessage string `json:"statusMessage,omitempty"`
+	// Host: Output only. Hostname or IP address of the exposed Redis endpoint used by
+	// clients to connect to the service.
+	Host string `json:"host,omitempty"`
+	// Port: Output only. The port number of the exposed Redis endpoint.
+	Port int64 `json:"port,omitempty"`
+	// State: Output only. The current state of this instance.
+	State string `json:"state,omitempty"`
+	// Specifies the behavior Redis follows when the memory size limit is reached.
+	MaxMemoryPolicy string `json:"maxMemoryPolicy,omitempty"`
+	// Allows clients to subscribe to notifications on certain keyspace events
+	NotifyKeyspaceEvents string `json:"notifyKeyspaceEvents,omitempty"`
+}
+
+func (s *MemoryStoreSpec) validate(fp *field.Path) field.ErrorList {
+	errs := field.ErrorList{}
+	if s == nil {
+		return errs
+	}
+
+	if s.Project == "" {
+		errs = append(errs, field.Required(fp.Child("project"), "Missing memoryStore Project"))
+	}
+	if s.Region == "" {
+		errs = append(errs, field.Required(fp.Child("region"), "Missing memoryStore Region"))
+	}
+
+	var allowedMaxMemoryPolicy = []string{"noeviction", "allkeys-lru", "volatile-lru", "allkeys-random", "volatile-random", "Volatile-ttl"}
+	allowedMMP := false
+	for _, policy := range allowedMaxMemoryPolicy {
+		if policy == s.MaxMemoryPolicy {
+			allowedMMP = true
+		}
+	}
+
+	if !allowedMMP {
+		errs = append(errs, field.Invalid(fp.Child("maxMemoryPolicy"), "", "Configuration is not allowed"))
+	}
+
+	var allowedNotifyKeyspaceEvents = []string{"", "K", "E", "g", "$", "l", "s", "h", "z", "x", "e", "A"}
+	allowedNKE := false
+	for _, event := range allowedNotifyKeyspaceEvents {
+		if event == s.NotifyKeyspaceEvents {
+			allowedNKE = true
+		}
+	}
+	if !allowedNKE {
+		errs = append(errs, field.Invalid(fp.Child("notifyKeyspaceEvent"), "", "Configuration is not allowed"))
+	}
+
+	return errs
+}
+
 // RedisSpec defines the attributes and desired state of Redis component
 type RedisSpec struct {
 	// Image defines the Redis Docker image name
@@ -271,6 +362,9 @@ type AirflowClusterSpec struct {
 	// Airflow config as env list
 	// +optional
 	Config ClusterConfig `json:"config,omitempty"`
+	// Spec for MemoryStore component
+	// +optional
+	MemoryStore *MemoryStoreSpec `json:"memoryStore,omitempty"`
 	// Spec for Redis component.
 	// +optional
 	Redis *RedisSpec `json:"redis,omitempty"`
@@ -310,7 +404,7 @@ type AirflowClusterStatus struct {
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// AirflowCluster represents the Airflow Schduler and workers for a single DAG folder
+// AirflowCluster represents the Airflow Scheduler and workers for a single DAG folder
 // function. At a minimum they need a SQL service (MySQL or SQLProxy) and Airflow UI.
 // In addition for an installation with minimal external dependencies, NFS and Airflow UI
 // are also added.
@@ -423,6 +517,7 @@ func (b *AirflowCluster) Validate() error {
 	errs := field.ErrorList{}
 	spec := field.NewPath("spec")
 
+	errs = append(errs, b.Spec.MemoryStore.validate(spec.Child("memorystore"))...)
 	errs = append(errs, b.Spec.Redis.validate(spec.Child("redis"))...)
 	errs = append(errs, b.Spec.Scheduler.validate(spec.Child("scheduler"))...)
 	errs = append(errs, b.Spec.Worker.validate(spec.Child("worker"))...)
@@ -445,8 +540,8 @@ func (b *AirflowCluster) Validate() error {
 	}
 
 	if b.Spec.Executor == ExecutorCelery {
-		if b.Spec.Redis == nil {
-			errs = append(errs, field.Required(spec.Child("redis"), "redis required for Celery executor"))
+		if b.Spec.Redis == nil && b.Spec.MemoryStore == nil {
+			errs = append(errs, field.Required(spec.Child("redis"), "redis/memoryStore required for Celery executor"))
 		}
 		if b.Spec.Worker == nil {
 			errs = append(errs, field.Required(spec.Child("worker"), "worker required for Celery executor"))
@@ -480,6 +575,14 @@ func (b *AirflowCluster) Components() []component.Component {
 		c = append(c, component.Component{
 			Handle:   b.Spec.Redis,
 			Name:     ValueAirflowComponentRedis,
+			CR:       b,
+			OwnerRef: b.OwnerRef(),
+		})
+	}
+	if b.Spec.MemoryStore != nil {
+		c = append(c, component.Component{
+			Handle:   b.Spec.MemoryStore,
+			Name:     ValueAirflowComponentMemoryStore,
 			CR:       b,
 			OwnerRef: b.OwnerRef(),
 		})
@@ -550,7 +653,11 @@ func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *A
 	c.Spec.Scheduler = &SchedulerSpec{}
 	c.Spec.UI = &AirflowUISpec{}
 	if executor == ExecutorCelery {
-		c.Spec.Redis = &RedisSpec{}
+		if c.Spec.Redis == nil {
+			c.Spec.MemoryStore = &MemoryStoreSpec{}
+		} else {
+			c.Spec.Redis = &RedisSpec{}
+		}
 		c.Spec.Worker = &WorkerSpec{}
 		c.Spec.Flower = &FlowerSpec{}
 	}

@@ -538,7 +538,7 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
 		return resources, nil
 	}
 
@@ -896,7 +896,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
 		return resources, nil
 	}
 
@@ -1002,7 +1002,7 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
 		return resources, nil
 	}
 
@@ -1054,7 +1054,7 @@ func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
 		return resources, nil
 	}
 

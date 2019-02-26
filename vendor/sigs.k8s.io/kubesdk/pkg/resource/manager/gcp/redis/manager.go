@@ -31,13 +31,21 @@ const (
 
 // RsrcManager - complies with resource manager interface
 type RsrcManager struct {
-	name    string
-	service *redis.Service
+	name      string
+	service   *redis.Service
+	instances map[string]resource.Item
 }
 
 // NewRsrcManager returns nil manager
-func NewRsrcManager() *RsrcManager {
-	return &RsrcManager{}
+func NewRsrcManager(ctx context.Context, name string) (*RsrcManager, error) {
+	rm := &RsrcManager{}
+	rm.instances = make(map[string]resource.Item)
+	service, err := NewService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rm.WithService(service).WithName(name)
+	return rm, nil
 }
 
 // WithName adds name
@@ -109,6 +117,11 @@ func NewObservable(o *Object, labels map[string]string) resource.Observable {
 	}
 }
 
+// GetInstance - return existing instance list
+func (rm *RsrcManager) GetInstanceMap() map[string]resource.Item {
+	return rm.instances
+}
+
 // ObservablesFromObjects returns ObservablesFromObjects
 func (rm *RsrcManager) ObservablesFromObjects(bag *resource.Bag, labels map[string]string) []resource.Observable {
 	var observables []resource.Observable
@@ -152,6 +165,10 @@ func (rm *RsrcManager) SpecDiffers(expected, observed *resource.Item) bool {
 	CopyMutatedSpecFields(expected, observed)
 	e := expected.Obj.(*Object).Obj
 	o := observed.Obj.(*Object).Obj
+	if o.State == "UPDATING" {
+		return false
+	}
+
 	return !reflect.DeepEqual(e.AlternativeLocationId, o.AlternativeLocationId) ||
 		!reflect.DeepEqual(e.AuthorizedNetwork, o.AuthorizedNetwork) ||
 		!reflect.DeepEqual(e.DisplayName, o.DisplayName) ||
@@ -179,6 +196,7 @@ func (rm *RsrcManager) Observe(observables ...resource.Observable) (*resource.Ba
 			return &resource.Bag{}, nil
 		}
 		obj := Object{Obj: redis, Parent: obs.Parent, InstanceID: obs.InstanceID}
+		rm.instances[obs.Parent + "/instances/" + obs.InstanceID] = (*obj.AsItem())
 		returnval.Add(*obj.AsItem())
 	}
 	return returnval, nil
@@ -188,8 +206,11 @@ func (rm *RsrcManager) Observe(observables ...resource.Observable) (*resource.Ba
 func (rm *RsrcManager) Update(item resource.Item) error {
 	obj := item.Obj.(*Object)
 	d := obj.Obj
-	_, err := rm.service.Projects.Locations.Instances.Patch(d.Name, d).
+	_, err := rm.service.Projects.Locations.Instances.Patch(obj.Parent + "/instances/" + obj.InstanceID, d).
 		UpdateMask("displayName,labels,memorySizeGb,redisConfigs").Do()
+	if err == nil {
+		rm.instances[obj.Parent + "/instances/" + obj.InstanceID] = item
+	}
 	return err
 }
 
@@ -198,6 +219,9 @@ func (rm *RsrcManager) Create(item resource.Item) error {
 	obj := item.Obj.(*Object)
 	d := obj.Obj
 	_, err := rm.service.Projects.Locations.Instances.Create(obj.Parent, d).InstanceId(obj.InstanceID).Do()
+	if err == nil {
+		rm.instances[obj.Parent + "/instances/" + obj.InstanceID] = item
+	}
 	return err
 }
 
@@ -205,6 +229,9 @@ func (rm *RsrcManager) Create(item resource.Item) error {
 func (rm *RsrcManager) Delete(item resource.Item) error {
 	obj := item.Obj.(*Object)
 	_, err := rm.service.Projects.Locations.Instances.Delete(obj.Parent + "/instances/" + obj.InstanceID).Do()
+	if err == nil {
+		delete(rm.instances, obj.Parent + "/instances/" + obj.InstanceID)
+	}
 	return err
 }
 

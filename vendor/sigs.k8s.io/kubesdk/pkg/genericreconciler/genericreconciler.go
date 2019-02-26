@@ -15,6 +15,7 @@ package genericreconciler
 
 import (
 	"fmt"
+	"strings"
 	apierror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,6 +31,8 @@ import (
 	"sigs.k8s.io/kubesdk/pkg/resource"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp/redis"
 	"time"
 )
 
@@ -59,6 +62,39 @@ func (gr *Reconciler) itemMgr(i resource.Item) (manager.Manager, error) {
 	return m, nil
 }
 
+// ResourceManagerCleanup is a generic function that cleans component which is not managed by
+// k8s resource manager
+func (gr *Reconciler) ResourceManagerCleanup(resourceName string) {
+	labels := strings.Split(resourceName, "/")
+	var labelMap = make(map[string]string)
+	labelMap["custom-resource"]           = strings.Trim(labels[0], "*")
+	labelMap["custom-resource-name"]      = labels[2]
+	labelMap["custom-resource-namespace"] = labels[1]
+	labelMap = gcp.CompliantLabelMap(labelMap)
+
+	rsrcType := [1]string{"redis"}
+	for _, rsrc := range rsrcType {
+		rmgr := gr.RsrcMgr.Get(rsrc)
+		if rmgr == nil {
+			continue
+		}
+		instanceMap := rmgr.GetInstanceMap()
+		if instanceMap == nil {
+			continue
+		}
+		for _, v := range instanceMap {
+			switch rsrc {
+			case "redis":
+				labelMap["component"] = "redis"
+				rds := v.Obj.(*redis.Object).Obj
+				if reflect.DeepEqual(rds.Labels, labelMap) {
+					rmgr.Delete(v)
+				}
+			}
+		}
+	}
+}
+
 // ReconcileCR is a generic function that reconciles expected and observed resources
 func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName) (reconcile.Result, error) {
 	var p time.Duration
@@ -72,6 +108,7 @@ func (gr *Reconciler) ReconcileCR(namespacedname types.NamespacedName) (reconcil
 	if err != nil {
 		if apierror.IsNotFound(err) {
 			urt.HandleError(fmt.Errorf("not found %s. %s", name, err.Error()))
+			gr.ResourceManagerCleanup(name)
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{RequeueAfter: CRGetFailureReconcilePeriod}, err

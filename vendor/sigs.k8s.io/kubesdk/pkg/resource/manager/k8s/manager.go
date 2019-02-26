@@ -479,3 +479,8 @@ func Get(rm manager.Manager, nn types.NamespacedName, o runtime.Object) error {
 	krm := rm.(*RsrcManager)
 	return krm.client.Get(context.TODO(), nn, o)
 }
+
+// GetInstance - return existing instance list
+func (rm *RsrcManager) GetInstanceMap() map[string]resource.Item {
+	return nil
+}

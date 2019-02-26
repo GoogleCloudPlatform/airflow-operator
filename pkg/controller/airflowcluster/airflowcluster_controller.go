@@ -17,11 +17,13 @@ limitations under the License.
 package airflowcluster
 
 import (
+	"context"
 	airflowv1alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	reconciler "sigs.k8s.io/kubesdk/pkg/genericreconciler"
 	kbc "sigs.k8s.io/kubesdk/pkg/kbcontroller"
+	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp/redis"
 )
 
 // Add creates a new AirflowCluster Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
@@ -34,5 +36,8 @@ func Add(mgr manager.Manager) error {
 func newReconciler(mgr manager.Manager) reconcile.Reconciler {
 	r := &reconciler.Reconciler{}
 	r.WithManager(mgr).WithCR(&airflowv1alpha1.AirflowCluster{}).Init()
+	if rd, err := redis.NewRsrcManager(context.TODO(), "redismgr"); err == nil {
+		r.RsrcMgr.Add(redis.Type, rd)
+	}
 	return r
 }

@@ -70,30 +70,12 @@ type MemoryStoreSpec struct {
 	LocationId string `json:"locationId,omitempty"`
 	// MemorySizeGb: Required. Redis memory size in GiB.
 	MemorySizeGb int64 `json:"memorySizeGb,omitempty"`
-	// Name: Required. Unique name of the resource in this scope including project and
-	// location using the form: `projects/{project_id}/locations/{location_id}/instances/{instance_id}`
-	Name string `json:"name,omitempty"`
 	// RedisConfigs: Optional. Redis configuration parameters
 	RedisConfigs map[string]string `json:"redisConfigs,omitempty"`
 	// RedisVersion: Optional. The version of Redis software.
 	RedisVersion string `json:"redisVersion,omitempty"`
 	// Tier: Required. The service tier of the instance.
 	Tier string `json:"tier,omitempty"`
-	// CreateTime: Output only. The time the instance was created.
-	CreateTime string `json:"createTime,omitempty"`
-	// CurrentLocationId: Output only. The current zone where the Redis
-	// endpoint is placed.
-	CurrentLocationId string `json:"currentLocationId,omitempty"`
-	// StatusMessage: Output only. Additional information about the current
-	// status of this instance, if available.
-	StatusMessage string `json:"statusMessage,omitempty"`
-	// Host: Output only. Hostname or IP address of the exposed Redis endpoint used by
-	// clients to connect to the service.
-	Host string `json:"host,omitempty"`
-	// Port: Output only. The port number of the exposed Redis endpoint.
-	Port int64 `json:"port,omitempty"`
-	// State: Output only. The current state of this instance.
-	State string `json:"state,omitempty"`
 	// Specifies the behavior Redis follows when the memory size limit is reached.
 	MaxMemoryPolicy string `json:"maxMemoryPolicy,omitempty"`
 	// Allows clients to subscribe to notifications on certain keyspace events

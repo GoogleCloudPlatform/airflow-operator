@@ -25,10 +25,12 @@ import (
 	"math/rand"
 	"sigs.k8s.io/kubesdk/pkg/application"
 	"sigs.k8s.io/kubesdk/pkg/component"
+	"sigs.k8s.io/kubesdk/pkg/finalizer"
 	"sigs.k8s.io/kubesdk/pkg/resource"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/gcp/redis"
 	"sigs.k8s.io/kubesdk/pkg/resource/manager/k8s"
+	"sigs.k8s.io/kubesdk/pkg/status"
 	"sort"
 	"strconv"
 	"strings"
@@ -231,8 +233,8 @@ func (r *AirflowCluster) getAirflowEnv(saName string, base *AirflowBase) []corev
 		if sp.MemoryStore != nil {
 			env = append(env,
 				[]corev1.EnvVar{
-					{Name: "REDIS_HOST", Value: sp.MemoryStore.Host},
-					{Name: "REDIS_PORT", Value: strconv.FormatInt(sp.MemoryStore.Port, 10)},
+					{Name: "REDIS_HOST", Value: sp.MemoryStore.Status.Host},
+					{Name: "REDIS_PORT", Value: strconv.FormatInt(sp.MemoryStore.Status.Port, 10)},
 				}...)
 		} else if r.Spec.Redis.RedisHost == "" {
 			env = append(env,
@@ -538,7 +540,7 @@ func (s *AirflowUISpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
 		return resources, nil
 	}
 
@@ -896,7 +898,7 @@ func (s *SchedulerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[strin
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
 		return resources, nil
 	}
 
@@ -1002,7 +1004,7 @@ func (s *WorkerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
 		return resources, nil
 	}
 
@@ -1054,7 +1056,7 @@ func (s *FlowerSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]s
 	var resources *resource.Bag = new(resource.Bag)
 	r := rsrc.(*AirflowCluster)
 
-	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Host == "" {
+	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
 		return resources, nil
 	}
 
@@ -1128,7 +1130,7 @@ func (s *MemoryStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[str
 	robj := obj.Obj
 	robj.AlternativeLocationId = s.AlternativeLocationId
 	robj.AuthorizedNetwork = s.AuthorizedNetwork
-	robj.DisplayName = s.DisplayName
+	robj.DisplayName = r.Name + "-redis"
 	robj.Labels = gcp.CompliantLabelMap(rsrclabels)
 
 	if s.NotifyKeyspaceEvents != "" {
@@ -1157,19 +1159,19 @@ func (s *MemoryStoreSpec) ExpectedResources(rsrc interface{}, rsrclabels map[str
 func (s *MemoryStoreSpec) UpdateComponentStatus(rsrci interface{}, reconciled *resource.Bag, err error) time.Duration {
 	var period time.Duration
 	if s != nil {
-		stts := &rsrci.(*AirflowCluster).Status
+		stts := &rsrci.(*AirflowCluster).Spec.MemoryStore.Status
 		ready := false
 		if len(reconciled.Items()) != 0 {
 			instance := reconciled.Items()[0].Obj.(*redis.Object).Obj
-			s.CreateTime = instance.CreateTime
-			s.CurrentLocationId = instance.CurrentLocationId
-			s.Host = instance.Host
-			s.Port = instance.Port
-			s.State = instance.State
+			stts.CreateTime = instance.CreateTime
+			stts.CurrentLocationId = instance.CurrentLocationId
+			stts.Host = instance.Host
+			stts.Port = instance.Port
+			stts.State = instance.State
 			if instance.State != "READY" && instance.State != "MAINTENANCE" {
 				period = time.Second * 30
 			}
-			s.StatusMessage = instance.StatusMessage
+			stts.StatusMessage = instance.StatusMessage
 			ready = true
 			stts.Meta.UpdateStatus(&ready, err)
 		} else {
@@ -1183,6 +1185,23 @@ func (s *MemoryStoreSpec) UpdateComponentStatus(rsrci interface{}, reconciled *r
 // Differs returns true if the resource needs to be updated
 func (s *MemoryStoreSpec) Differs(expected resource.Item, observed resource.Item) bool {
 	return true //differs(expected, observed)
+}
+
+// Finalize - finalizes MemoryStore component when it is deleted
+func (s *MemoryStoreSpec) Finalize(rsrc interface{}, observed, dependent *resource.Bag) error {
+	obj := rsrc.(*AirflowCluster).Spec.MemoryStore
+	obj.Status.NotReady("Finalizing", "Finalizing in progress")
+	if len(observed.Items()) != 0 {
+		finalizer.Add(obj, finalizer.Cleanup)
+		items := observed.Items()
+		for i := range items {
+			items[i].Delete = true
+		}
+		obj.Status.SetCondition(status.Cleanup, "InProgress", "Items pending deletion")
+	} else {
+		finalizer.Remove(obj, finalizer.Cleanup)
+	}
+	return nil
 }
 
 // ---------------- Global AirflowCluster component -------------------------

@@ -22,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/kubesdk/pkg/component"
+	"sigs.k8s.io/kubesdk/pkg/finalizer"
+	"sigs.k8s.io/kubesdk/pkg/resource"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -51,6 +53,8 @@ var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCeler
 
 // MemoryStoreSpec defines the attributes and desired state of MemoryStore component
 type MemoryStoreSpec struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// Project defines the SQL instance project
 	Project string `json:"project"`
 	// Region defines the SQL instance region
@@ -61,11 +65,6 @@ type MemoryStoreSpec struct {
 	// AuthorizedNetwork
 	// +optional.
 	AuthorizedNetwork string `json:"authorizedNetwork,omitempty"`
-	// DisplayName: An arbitrary and user-provided name for the instance.
-	// +optional
-	DisplayName string `json:"displayName,omitempty"`
-	// Labels: Resource labels to represent user provided metadata
-	Labels map[string]string `json:"labels,omitempty"`
 	// LocationId: The zone where the instance will be provisioned.
 	// +optional
 	LocationId string `json:"locationId,omitempty"`
@@ -99,6 +98,8 @@ type MemoryStoreSpec struct {
 	MaxMemoryPolicy string `json:"maxMemoryPolicy,omitempty"`
 	// Allows clients to subscribe to notifications on certain keyspace events
 	NotifyKeyspaceEvents string `json:"notifyKeyspaceEvents,omitempty"`
+	// Status
+	Status MemoryStoreStatus `json:"status,omitempty"`
 }
 
 func (s *MemoryStoreSpec) validate(fp *field.Path) field.ErrorList {
@@ -395,6 +396,27 @@ type SchedulerStatus struct {
 	RunCount int32 `json:"runcount,omitempty"`
 }
 
+// MemoryStoreStatus defines the observed state of MemoryStore
+type MemoryStoreStatus struct {
+	// CreateTime: Output only. The time the instance was created.
+	CreateTime string `json:"createTime,omitempty"`
+	// CurrentLocationId: Output only. The current zone where the Redis
+	// endpoint is placed.
+	CurrentLocationId string `json:"currentLocationId,omitempty"`
+	// StatusMessage: Output only. Additional information about the current
+	// status of this instance, if available.
+	StatusMessage string `json:"statusMessage,omitempty"`
+	// Host: Output only. Hostname or IP address of the exposed Redis endpoint used by
+	// clients to connect to the service.
+	Host string `json:"host,omitempty"`
+	// Port: Output only. The port number of the exposed Redis endpoint.
+	Port int64 `json:"port,omitempty"`
+	// State: Output only. The current state of this instance.
+	State                string `json:"state,omitempty"`
+	status.Meta          `json:",inline"`
+	status.ComponentMeta `json:",inline"`
+}
+
 // AirflowClusterStatus defines the observed state of AirflowCluster
 type AirflowClusterStatus struct {
 	status.Meta          `json:",inline"`
@@ -501,6 +523,7 @@ func (b *AirflowCluster) ApplyDefaults() {
 		}
 	}
 	b.Status.ComponentList = status.ComponentList{}
+	finalizer.EnsureStandard(b)
 }
 
 // HandleError records status or error in status
@@ -635,6 +658,23 @@ func (b *AirflowCluster) OwnerRef() *metav1.OwnerReference {
 		Version: SchemeGroupVersion.Version,
 		Kind:    "AirflowCluster",
 	})
+}
+
+// Finalize finalizes AirflowCluster component when it is deleted
+func (s *AirflowCluster) Finalize(rsrc interface{}, observed, dependent *resource.Bag) error {
+	obj := rsrc.(*AirflowCluster)
+	obj.Status.NotReady("Finalizing", "Finalizing in progress")
+	if len(observed.Items()) != 0 {
+		finalizer.Add(obj, finalizer.Cleanup)
+		items := observed.Items()
+		for i := range items {
+			items[i].Delete = true
+		}
+		obj.Status.SetCondition(status.Cleanup, "InProgress", "Items pending deletion")
+	} else {
+		finalizer.Remove(obj, finalizer.Cleanup)
+	}
+	return nil
 }
 
 // TODOs.ComponentList = status.ComponentList{}

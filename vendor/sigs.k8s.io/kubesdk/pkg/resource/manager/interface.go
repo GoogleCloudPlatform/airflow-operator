@@ -25,5 +25,4 @@ type Manager interface {
 	Delete(item resource.Item) error
 	SpecDiffers(expected, observed *resource.Item) bool
 	ObservablesFromObjects(bag *resource.Bag, labels map[string]string) []resource.Observable
-	GetInstanceMap() map[string]resource.Item
 }

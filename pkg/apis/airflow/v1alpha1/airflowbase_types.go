@@ -22,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/kubesdk/pkg/component"
+	"sigs.k8s.io/kubesdk/pkg/finalizer"
+	"sigs.k8s.io/kubesdk/pkg/resource"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -466,6 +468,7 @@ func (b *AirflowBase) ApplyDefaults() {
 		}
 	}
 	b.Status.ComponentList = status.ComponentList{}
+	finalizer.EnsureStandard(b)
 }
 
 // HandleError records status or error in status
@@ -559,6 +562,23 @@ func (b *AirflowBase) OwnerRef() *metav1.OwnerReference {
 		Version: SchemeGroupVersion.Version,
 		Kind:    "AirflowBase",
 	})
+}
+
+// Finalize - finalizes AirflowBase component when it is deleted
+func (s *AirflowBase) Finalize(rsrc interface{}, observed *resource.Bag) error {
+	obj := rsrc.(*AirflowBase)
+	obj.Status.NotReady("Finalizing", "Finalizing in progress")
+	if len(observed.Items()) != 0 {
+		finalizer.Add(obj, finalizer.Cleanup)
+		items := observed.Items()
+		for i := range items {
+			items[i].Delete = true
+		}
+		obj.Status.SetCondition(status.Cleanup, "InProgress", "Items pending deletion")
+	} else {
+		finalizer.Remove(obj, finalizer.Cleanup)
+	}
+	return nil
 }
 
 // NewAirflowBase return a defaults filled AirflowBase object

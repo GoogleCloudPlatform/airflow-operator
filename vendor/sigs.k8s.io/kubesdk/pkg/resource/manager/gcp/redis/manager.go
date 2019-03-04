@@ -158,9 +158,6 @@ func (rm *RsrcManager) SpecDiffers(expected, observed *resource.Item) bool {
 	CopyMutatedSpecFields(expected, observed)
 	e := expected.Obj.(*Object).Obj
 	o := observed.Obj.(*Object).Obj
-	if o.State == "UPDATING" {
-		return false
-	}
 
 	return !reflect.DeepEqual(e.AlternativeLocationId, o.AlternativeLocationId) ||
 		!reflect.DeepEqual(e.AuthorizedNetwork, o.AuthorizedNetwork) ||

@@ -81,6 +81,11 @@ func isClusterReady(cr interface{}) bool {
 	return stts.IsReady()
 }
 
+func isMemoryStoreReady(cr interface{}) bool {
+	stts := cr.(*v1alpha1.AirflowCluster).Spec.MemoryStore.Status
+	return stts.IsReady()
+}
+
 func checkLocal(cr *v1alpha1.AirflowCluster) {
 	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-airflowui", 1, 1)
 	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-scheduler", 1, 1)
@@ -93,6 +98,15 @@ func checkCelery(cr *v1alpha1.AirflowCluster) {
 	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-scheduler", 1, 1)
 	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-worker", 2, 1)
 	ctx.WithTimeout(10).CheckService(cr.Name+"-redis", map[string]int32{"redis": 6379})
+	ctx.WithTimeout(200).CheckCR(isClusterReady)
+}
+
+func checkCeleryMemoryStore(cr *v1alpha1.AirflowCluster) {
+	ctx.WithTimeout(500).CheckCR(isMemoryStoreReady)
+	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-airflowui", 1, 1)
+	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-flower", 1, 1)
+	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-scheduler", 1, 1)
+	ctx.WithTimeout(200).CheckStatefulSet(cr.Name+"-worker", 2, 1)
 	ctx.WithTimeout(200).CheckCR(isClusterReady)
 }
 
@@ -159,5 +173,19 @@ var _ = Describe(CRName+" controller tests", func() {
 		By("creating a new " + CRName + ": " + cr.Name)
 		ctx.CreateCR()
 		checkCelery(cr)
+	})
+
+	It("creating a "+CRName+" with postgres, celery executor and memorystore", func() {
+		basectx = f.NewContext().WithCR(airflowBase(SampleDir + "postgres-celery/base.yaml"))
+		ctx = f.NewContext().WithCR(airflowCluster(SampleDir + "postgres-celery-memorystore/cluster.yaml"))
+		basecr := basectx.CR.(*v1alpha1.AirflowBase)
+		cr := ctx.CR.(*v1alpha1.AirflowCluster)
+		By("creating a base " + basecr.Name)
+		basectx.CreateCR()
+		basectx.WithTimeout(200).CheckCR(isBaseReady)
+
+		By("creating a new " + CRName + ": " + cr.Name)
+		ctx.CreateCR()
+		checkCeleryMemoryStore(cr)
 	})
 })

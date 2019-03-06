@@ -95,6 +95,129 @@ spec:
               type: object
             labels:
               type: object
+            memoryStore:
+              properties:
+                alternativeLocationId:
+                  type: string
+                apiVersion:
+                  type: string
+                authorizedNetwork:
+                  type: string
+                kind:
+                  type: string
+                locationId:
+                  type: string
+                maxMemoryPolicy:
+                  type: string
+                memorySizeGb:
+                  format: int64
+                  type: integer
+                metadata:
+                  type: object
+                notifyKeyspaceEvents:
+                  type: string
+                project:
+                  type: string
+                redisConfigs:
+                  type: object
+                redisVersion:
+                  type: string
+                region:
+                  type: string
+                status:
+                  properties:
+                    components:
+                      items:
+                        properties:
+                          group:
+                            type: string
+                          kind:
+                            type: string
+                          link:
+                            type: string
+                          name:
+                            type: string
+                          pdb:
+                            properties:
+                              currenthealthy:
+                                format: int32
+                                type: integer
+                              desiredhealthy:
+                                format: int32
+                                type: integer
+                            required:
+                            - currenthealthy
+                            - desiredhealthy
+                            type: object
+                          status:
+                            type: string
+                          sts:
+                            properties:
+                              currentcount:
+                                format: int32
+                                type: integer
+                              progress:
+                                format: int32
+                                type: integer
+                              readycount:
+                                format: int32
+                                type: integer
+                              replicas:
+                                format: int32
+                                type: integer
+                            required:
+                            - replicas
+                            - readycount
+                            - currentcount
+                            - progress
+                            type: object
+                        type: object
+                      type: array
+                    conditions:
+                      items:
+                        properties:
+                          lastTransitionTime:
+                            format: date-time
+                            type: string
+                          lastUpdateTime:
+                            format: date-time
+                            type: string
+                          message:
+                            type: string
+                          reason:
+                            type: string
+                          status:
+                            type: string
+                          type:
+                            type: string
+                        required:
+                        - type
+                        - status
+                        type: object
+                      type: array
+                    createTime:
+                      type: string
+                    currentLocationId:
+                      type: string
+                    host:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      type: integer
+                    port:
+                      format: int64
+                      type: integer
+                    state:
+                      type: string
+                    statusMessage:
+                      type: string
+                  type: object
+                tier:
+                  type: string
+              required:
+              - project
+              - region
+              type: object
             nodeSelector:
               type: object
             redis:

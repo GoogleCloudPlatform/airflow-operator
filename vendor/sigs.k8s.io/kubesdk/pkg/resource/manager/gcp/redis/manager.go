@@ -31,13 +31,19 @@ const (
 
 // RsrcManager - complies with resource manager interface
 type RsrcManager struct {
-	name    string
-	service *redis.Service
+	name      string
+	service   *redis.Service
 }
 
 // NewRsrcManager returns nil manager
-func NewRsrcManager() *RsrcManager {
-	return &RsrcManager{}
+func NewRsrcManager(ctx context.Context, name string) (*RsrcManager, error) {
+	rm := &RsrcManager{}
+	service, err := NewService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rm.WithService(service).WithName(name)
+	return rm, nil
 }
 
 // WithName adds name
@@ -152,6 +158,7 @@ func (rm *RsrcManager) SpecDiffers(expected, observed *resource.Item) bool {
 	CopyMutatedSpecFields(expected, observed)
 	e := expected.Obj.(*Object).Obj
 	o := observed.Obj.(*Object).Obj
+
 	return !reflect.DeepEqual(e.AlternativeLocationId, o.AlternativeLocationId) ||
 		!reflect.DeepEqual(e.AuthorizedNetwork, o.AuthorizedNetwork) ||
 		!reflect.DeepEqual(e.DisplayName, o.DisplayName) ||
@@ -188,7 +195,7 @@ func (rm *RsrcManager) Observe(observables ...resource.Observable) (*resource.Ba
 func (rm *RsrcManager) Update(item resource.Item) error {
 	obj := item.Obj.(*Object)
 	d := obj.Obj
-	_, err := rm.service.Projects.Locations.Instances.Patch(d.Name, d).
+	_, err := rm.service.Projects.Locations.Instances.Patch(obj.Parent + "/instances/" + obj.InstanceID, d).
 		UpdateMask("displayName,labels,memorySizeGb,redisConfigs").Do()
 	return err
 }

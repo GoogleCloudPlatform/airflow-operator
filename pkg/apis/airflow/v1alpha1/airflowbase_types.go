@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/kubesdk/pkg/component"
+	"sigs.k8s.io/kubesdk/pkg/finalizer"
 	"sigs.k8s.io/kubesdk/pkg/status"
 )
 
@@ -466,6 +467,7 @@ func (b *AirflowBase) ApplyDefaults() {
 		}
 	}
 	b.Status.ComponentList = status.ComponentList{}
+	finalizer.EnsureStandard(b)
 }
 
 // HandleError records status or error in status

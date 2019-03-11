@@ -395,6 +395,19 @@
   revision = "9c8bd463e3aca40b6288cd14f7b7703206ff743b"
 
 [[projects]]
+  name = "google.golang.org/api"
+  packages = [
+    "compute/v1",
+    "gensupport",
+    "googleapi",
+    "googleapi/internal/uritemplates",
+    "redis/v1",
+    "storage/v1"
+  ]
+  revision = "e742f5a8defa1f9f5d723dfa04c962e680dc33f0"
+  version = "v0.2.0"
+
+[[projects]]
   name = "google.golang.org/appengine"
   packages = [
     ".",
@@ -477,7 +490,10 @@
   name = "k8s.io/apiextensions-apiserver"
   packages = [
     "pkg/apis/apiextensions",
-    "pkg/apis/apiextensions/v1beta1"
+    "pkg/apis/apiextensions/v1beta1",
+    "pkg/client/clientset/clientset",
+    "pkg/client/clientset/clientset/scheme",
+    "pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
   ]
   revision = "408db4a50408e2149acbd657bceb2480c13cb0a4"
   version = "kubernetes-1.11.2"
@@ -656,6 +672,8 @@
     "pkg/client/apiutil",
     "pkg/client/config",
     "pkg/controller",
+    "pkg/envtest",
+    "pkg/envtest/printer",
     "pkg/event",
     "pkg/handler",
     "pkg/internal/controller",
@@ -668,6 +686,7 @@
     "pkg/recorder",
     "pkg/runtime/inject",
     "pkg/runtime/log",
+    "pkg/runtime/scheme",
     "pkg/runtime/signals",
     "pkg/source",
     "pkg/source/internal",
@@ -704,6 +723,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ad79e9ede90770ef92bf4b522417eb2087c16b05fe5bdf5f83f12c1371bfe17f"
+  inputs-digest = "110057b07c88ee606b2dae02760372c144c81a60489bc0e39179503d8cff8505"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -19,25 +19,27 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"sigs.k8s.io/kubesdk/pkg/component"
-	"sigs.k8s.io/kubesdk/pkg/finalizer"
-	"sigs.k8s.io/kubesdk/pkg/status"
+	"math/rand"
+	"sigs.k8s.io/controller-reconciler/pkg/finalizer"
+	"sigs.k8s.io/controller-reconciler/pkg/status"
+	"time"
 )
 
 // defaults and constant strings
 const (
+	PasswordCharNumSpace    = "abcdefghijklmnopqrstuvwxyz0123456789"
+	PasswordCharSpace       = "abcdefghijklmnopqrstuvwxyz"
 	defaultRedisImage       = "redis"
 	defaultRedisVersion     = "4.0"
 	defaultRedisPort        = "6379"
 	defaultWorkerImage      = "gcr.io/airflow-operator/airflow"
 	defaultSchedulerImage   = "gcr.io/airflow-operator/airflow"
 	defaultFlowerImage      = "gcr.io/airflow-operator/airflow"
-	gitsyncImage            = "gcr.io/google_containers/git-sync"
-	gitsyncVersion          = "v3.0.1"
-	gcssyncImage            = "gcr.io/cloud-airflow-releaser/gcs-syncd"
-	gcssyncVersion          = "cloud_composer_service_2018-05-23-RC0"
+	GitsyncImage            = "gcr.io/google_containers/git-sync"
+	GitsyncVersion          = "v3.0.1"
+	GCSsyncImage            = "gcr.io/cloud-airflow-releaser/gcs-syncd"
+	GCSsyncVersion          = "cloud_composer_service_2018-05-23-RC0"
 	ExecutorLocal           = "Local"
 	ExecutorCelery          = "Celery"
 	ExecutorSequential      = "Sequential"
@@ -48,25 +50,37 @@ const (
 	defaultSchedulerVersion = "1.10.2"
 )
 
+var (
+	random = rand.New(rand.NewSource(time.Now().UnixNano()))
+)
+
+// RandomAlphanumericString generates a random password of some fixed length.
+func RandomAlphanumericString(strlen int) []byte {
+	result := make([]byte, strlen)
+	for i := range result {
+		result[i] = PasswordCharNumSpace[random.Intn(len(PasswordCharNumSpace))]
+	}
+	result[0] = PasswordCharSpace[random.Intn(len(PasswordCharSpace))]
+	return result
+}
+
 var allowedExecutors = []string{ExecutorLocal, ExecutorSequential, ExecutorCelery, ExecutorK8s}
 
 // MemoryStoreSpec defines the attributes and desired state of MemoryStore component
 type MemoryStoreSpec struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// Project defines the SQL instance project
 	Project string `json:"project"`
 	// Region defines the SQL instance region
 	Region string `json:"region"`
-	// AlternativeLocationId
+	// AlternativeLocationID - alt
 	// +optional.
-	AlternativeLocationId string `json:"alternativeLocationId,omitempty"`
+	AlternativeLocationID string `json:"alternativeLocationId,omitempty"`
 	// AuthorizedNetwork
 	// +optional.
 	AuthorizedNetwork string `json:"authorizedNetwork,omitempty"`
-	// LocationId: The zone where the instance will be provisioned.
+	// LocationID The zone where the instance will be provisioned.
 	// +optional
-	LocationId string `json:"locationId,omitempty"`
+	LocationID string `json:"locationId,omitempty"`
 	// MemorySizeGb: Required. Redis memory size in GiB.
 	MemorySizeGb int64 `json:"memorySizeGb,omitempty"`
 	// RedisConfigs: Optional. Redis configuration parameters
@@ -381,9 +395,9 @@ type SchedulerStatus struct {
 type MemoryStoreStatus struct {
 	// CreateTime: Output only. The time the instance was created.
 	CreateTime string `json:"createTime,omitempty"`
-	// CurrentLocationId: Output only. The current zone where the Redis
+	// CurrentLocationID: Output only. The current zone where the Redis
 	// endpoint is placed.
-	CurrentLocationId string `json:"currentLocationId,omitempty"`
+	CurrentLocationID string `json:"currentLocationId,omitempty"`
 	// StatusMessage: Output only. Additional information about the current
 	// status of this instance, if available.
 	StatusMessage string `json:"statusMessage,omitempty"`
@@ -507,15 +521,6 @@ func (b *AirflowCluster) ApplyDefaults() {
 	finalizer.EnsureStandard(b)
 }
 
-// HandleError records status or error in status
-func (b *AirflowCluster) HandleError(err error) {
-	if err != nil {
-		b.Status.SetError("ErrorSeen", err.Error())
-	} else {
-		b.Status.ClearError()
-	}
-}
-
 // Validate the AirflowCluster
 func (b *AirflowCluster) Validate() error {
 	errs := field.ErrorList{}
@@ -572,77 +577,6 @@ func (b *AirflowCluster) Validate() error {
 	return errs.ToAggregate()
 }
 
-// Components returns components for this resource
-func (b *AirflowCluster) Components() []component.Component {
-	c := []component.Component{}
-	if b.Spec.Redis != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.Redis,
-			Name:     ValueAirflowComponentRedis,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.MemoryStore != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.MemoryStore,
-			Name:     ValueAirflowComponentMemoryStore,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.Flower != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.Flower,
-			Name:     ValueAirflowComponentFlower,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.Scheduler != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.Scheduler,
-			Name:     ValueAirflowComponentScheduler,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.UI != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.UI,
-			Name:     ValueAirflowComponentUI,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.Worker != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.Worker,
-			Name:     ValueAirflowComponentWorker,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	c = append(c, component.Component{
-		Handle:   b,
-		Name:     ValueAirflowComponentCluster,
-		CR:       b,
-		OwnerRef: b.OwnerRef(),
-	})
-	return c
-}
-
-// OwnerRef returns owner ref object with the component's resource as owner
-func (b *AirflowCluster) OwnerRef() *metav1.OwnerReference {
-	return metav1.NewControllerRef(b, schema.GroupVersionKind{
-		Group:   SchemeGroupVersion.Group,
-		Version: SchemeGroupVersion.Version,
-		Kind:    "AirflowCluster",
-	})
-}
-
-// TODOs.ComponentList = status.ComponentList{}
-
 // NewAirflowCluster return a defaults filled AirflowCluster object
 func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *AirflowCluster {
 	c := AirflowCluster{
@@ -657,11 +591,9 @@ func NewAirflowCluster(name, namespace, executor, base string, dags *DagSpec) *A
 	c.Spec.Scheduler = &SchedulerSpec{}
 	c.Spec.UI = &AirflowUISpec{}
 	if executor == ExecutorCelery {
-		if c.Spec.Redis == nil {
-			c.Spec.MemoryStore = &MemoryStoreSpec{}
-		} else {
-			c.Spec.Redis = &RedisSpec{}
-		}
+		c.Spec.Redis = &RedisSpec{}
+		c.Spec.MemoryStore = &MemoryStoreSpec{}
+		c.Spec.Redis = &RedisSpec{}
 		c.Spec.Worker = &WorkerSpec{}
 		c.Spec.Flower = &FlowerSpec{}
 	}

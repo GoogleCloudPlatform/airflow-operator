@@ -17,7 +17,6 @@ limitations under the License.
 package airflowbase
 
 // Major:
-// TODO move validation to another struct ?
 // TODO retry.Retry
 //
 // Minor:
@@ -27,22 +26,326 @@ package airflowbase
 // TODO documentation for CRD spec
 
 import (
-	airflowv1alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
+	"encoding/base64"
+	//app "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
+	alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
+	"k8s.io/airflow-operator/pkg/controller/common"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1beta1"
+	reconciler "sigs.k8s.io/controller-reconciler/pkg/genericreconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/object"
+	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	reconciler "sigs.k8s.io/kubesdk/pkg/genericreconciler"
-	kbc "sigs.k8s.io/kubesdk/pkg/kbcontroller"
+	"time"
 )
 
 // Add creates a new AirflowBase Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
-	return kbc.CreateController("airflowbase", mgr, &airflowv1alpha1.AirflowBase{}, newReconciler(mgr))
+	r := newReconciler(mgr)
+	return r.Controller(nil)
 }
 
-// newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	r := &reconciler.Reconciler{}
-	r.WithManager(mgr).WithCR(&airflowv1alpha1.AirflowBase{}).Init()
-	return r
+func newReconciler(mgr manager.Manager) *reconciler.Reconciler {
+	return reconciler.
+		WithManager(mgr).
+		For(&alpha1.AirflowBase{}, alpha1.SchemeGroupVersion).
+		Using(&MySQL{}).
+		Using(&Postgres{}).
+		Using(&SQLProxy{}).
+		Using(&NFS{}).
+		Using(&AirflowBase{}).
+		WithErrorHandler(handleError).
+		WithValidator(validate).
+		WithDefaulter(applyDefaults).
+		Build()
+}
+
+func handleError(resource interface{}, err error, kind string) {
+	ab := resource.(*alpha1.AirflowBase)
+	if err != nil {
+		ab.Status.SetError("ErrorSeen", err.Error())
+	} else {
+		ab.Status.ClearError()
+	}
+}
+
+func validate(resource interface{}) error {
+	ab := resource.(*alpha1.AirflowBase)
+	return ab.Validate()
+}
+
+func applyDefaults(resource interface{}) {
+	ab := resource.(*alpha1.AirflowBase)
+	ab.ApplyDefaults()
+}
+
+// AirflowBase - interface to handle airflowbase
+type AirflowBase struct{}
+
+// MySQL - interface to handle redis
+type MySQL struct{}
+
+// Postgres  - interface to handle flower
+type Postgres struct{}
+
+// SQLProxy - interface to handle scheduler
+type SQLProxy struct{}
+
+// NFS - interface to handle worker
+type NFS struct{}
+
+// =-------------------------- common ------------------------------------
+
+func templateValue(r *alpha1.AirflowBase, component, altcomponent string, label, selector, ports map[string]string) *common.TemplateValue {
+	if altcomponent == "" {
+		altcomponent = component
+	}
+	return &common.TemplateValue{
+		Name:       common.RsrcName(r.Name, component, ""),
+		Namespace:  r.Namespace,
+		SecretName: common.RsrcName(r.Name, altcomponent, ""),
+		SvcName:    common.RsrcName(r.Name, altcomponent, ""),
+		Base:       r,
+		Labels:     label,
+		Selector:   selector,
+		Ports:      ports,
+	}
+}
+
+// updateStatus use reconciled objects to update component status
+func updateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+	var period time.Duration
+	stts := &rsrc.(*alpha1.AirflowBase).Status
+	ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+	stts.Meta.UpdateStatus(&ready, err)
+	return period
+}
+
+// ------------------------------ MYSQL  ---------------------------------------
+
+func (s *MySQL) sts(o *object.Item, v interface{}) {
+	r := v.(*common.TemplateValue)
+	sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
+	sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.MySQL.Resources
+	if r.Base.Spec.MySQL.VolumeClaimTemplate != nil {
+		sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.MySQL.VolumeClaimTemplate}
+	}
+}
+
+// Observables asd
+func (s *MySQL) Observables(labels map[string]string) []object.Observable {
+	return k8s.NewObservables().
+		WithLabels(labels).
+		For(&appsv1.StatefulSetList{}).
+		For(&corev1.SecretList{}).
+		For(&policyv1.PodDisruptionBudgetList{}).
+		For(&corev1.ServiceList{}).
+		Get()
+}
+
+// Objects returns the list of resource/name for those resources created by
+// the operator for this spec and those resources referenced by this operator.
+// Mark resources as owned, referred
+func (s *MySQL) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+	r := rsrc.(*alpha1.AirflowBase)
+	if r.Spec.MySQL == nil {
+		return &object.Bag{}, nil
+	}
+	ngdata := templateValue(r, common.ValueAirflowComponentMySQL, common.ValueAirflowComponentSQL, rsrclabels, rsrclabels, map[string]string{"mysql": "3306"})
+	ngdata.Secret = map[string]string{
+		"password":     base64.StdEncoding.EncodeToString(common.RandomAlphanumericString(16)),
+		"rootpassword": base64.StdEncoding.EncodeToString(common.RandomAlphanumericString(16)),
+	}
+	ngdata.PDBMinAvail = "100%"
+
+	return k8s.NewBag().
+		WithValue(ngdata).
+		WithTemplate("mysql-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
+		WithTemplate("secret.yaml", &corev1.SecretList{}, object.NoUpdate).
+		WithTemplate("pdb.yaml", &policyv1.PodDisruptionBudgetList{}).
+		WithTemplate("svc.yaml", &corev1.ServiceList{}).
+		Build()
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *MySQL) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+	return updateStatus(rsrc, reconciled, err)
+}
+
+// ------------------------------ POSTGRES  ---------------------------------------
+
+func (s *Postgres) sts(o *object.Item, v interface{}) {
+	r := v.(*common.TemplateValue)
+	sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
+	sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Postgres.Resources
+	if r.Base.Spec.Postgres.VolumeClaimTemplate != nil {
+		sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Postgres.VolumeClaimTemplate}
+	}
+}
+
+// Observables asd
+func (s *Postgres) Observables(labels map[string]string) []object.Observable {
+	return k8s.NewObservables().
+		WithLabels(labels).
+		For(&appsv1.StatefulSetList{}).
+		For(&corev1.SecretList{}).
+		For(&policyv1.PodDisruptionBudgetList{}).
+		For(&corev1.ServiceList{}).
+		Get()
+}
+
+// Objects returns the list of resource/name for those resources created by
+// the operator for this spec and those resources referenced by this operator.
+// Mark resources as owned, referred
+func (s *Postgres) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+	r := rsrc.(*alpha1.AirflowBase)
+	if r.Spec.Postgres == nil {
+		return &object.Bag{}, nil
+	}
+	ngdata := templateValue(r, common.ValueAirflowComponentPostgres, common.ValueAirflowComponentSQL, rsrclabels, rsrclabels, map[string]string{"postgres": "5432"})
+	ngdata.Secret = map[string]string{
+		"password":     base64.StdEncoding.EncodeToString(common.RandomAlphanumericString(16)),
+		"rootpassword": base64.StdEncoding.EncodeToString(common.RandomAlphanumericString(16)),
+	}
+	ngdata.PDBMinAvail = "100%"
+
+	return k8s.NewBag().
+		WithValue(ngdata).
+		WithTemplate("postgres-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
+		WithTemplate("secret.yaml", &corev1.SecretList{}, object.NoUpdate).
+		WithTemplate("pdb.yaml", &policyv1.PodDisruptionBudgetList{}).
+		WithTemplate("svc.yaml", &corev1.ServiceList{}).
+		Build()
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *Postgres) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+	return updateStatus(rsrc, reconciled, err)
+}
+
+// ------------------------------ NFSStoreSpec ---------------------------------------
+
+// Observables asd
+func (s *NFS) Observables(labels map[string]string) []object.Observable {
+	return k8s.NewObservables().
+		WithLabels(labels).
+		For(&appsv1.StatefulSetList{}).
+		For(&policyv1.PodDisruptionBudgetList{}).
+		For(&corev1.ServiceList{}).
+		Get()
+}
+
+// Objects returns the list of resource/name for those resources created by
+func (s *NFS) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+	r := rsrc.(*alpha1.AirflowBase)
+	if r.Spec.Storage == nil {
+		return &object.Bag{}, nil
+	}
+	ngdata := templateValue(r, common.ValueAirflowComponentNFS, "", rsrclabels, rsrclabels, map[string]string{"nfs": "2049", "mountd": "20048", "rpcbind": "111"})
+	ngdata.PDBMinAvail = "100%"
+
+	return k8s.NewBag().
+		WithValue(ngdata).
+		WithTemplate("nfs-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
+		WithTemplate("pdb.yaml", &policyv1.PodDisruptionBudgetList{}).
+		WithTemplate("svc.yaml", &corev1.ServiceList{}).
+		Build()
+}
+
+func (s *NFS) sts(o *object.Item, v interface{}) {
+	r := v.(*common.TemplateValue)
+	sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
+	sts.Spec.Template.Spec.Containers[0].Resources = r.Base.Spec.Storage.Resources
+	if r.Base.Spec.Storage.Volume != nil {
+		sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{*r.Base.Spec.Storage.Volume}
+	}
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *NFS) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+	return updateStatus(rsrc, reconciled, err)
+}
+
+// ------------------------------ SQLProxy ---------------------------------------
+
+// Observables asd
+func (s *SQLProxy) Observables(labels map[string]string) []object.Observable {
+	return k8s.NewObservables().
+		WithLabels(labels).
+		For(&appsv1.StatefulSetList{}).
+		For(&corev1.ServiceList{}).
+		Get()
+}
+
+// Objects returns the list of resource/name for those resources created by
+// the operator for this spec and those resources referenced by this operator.
+// Mark resources as owned, referred
+func (s *SQLProxy) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+	r := rsrc.(*alpha1.AirflowBase)
+	if r.Spec.SQLProxy == nil {
+		return &object.Bag{}, nil
+	}
+	sqlname := common.RsrcName(r.Name, common.ValueAirflowComponentSQL, "")
+
+	port := "3306"
+	if r.Spec.SQLProxy.Type == common.ValueSQLProxyTypePostgres {
+		port = "5432"
+	}
+	ngdata := templateValue(r, common.ValueAirflowComponentSQLProxy, "", rsrclabels, rsrclabels, map[string]string{"sqlproxy": port})
+	ngdata.SvcName = sqlname
+
+	return k8s.NewBag().
+		WithValue(ngdata).
+		WithFolder("templates/").
+		WithTemplate("sqlproxy-sts.yaml", &appsv1.StatefulSetList{}).
+		WithTemplate("svc.yaml", &corev1.ServiceList{}).
+		WithReferredItem(&corev1.Secret{}, sqlname, r.Namespace).
+		Build()
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *SQLProxy) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+	return updateStatus(rsrc, reconciled, err)
+}
+
+// ---------------- Global AirflowBase component -------------------------
+
+func appcrd(o *object.Item, v interface{}) {
+	//r := v.(*common.TemplateValue)
+	//ao := application.Application{Application: *o.Obj.(*k8s.Object).Obj.(*app.Application)}
+	//o = ao.SetComponentGK(r.Expected).Item()
+}
+
+// Observables asd
+func (s *AirflowBase) Observables(labels map[string]string) []object.Observable {
+	return k8s.NewObservables().
+		WithLabels(labels).
+		//For(&app.ApplicationList{}).
+		Get()
+}
+
+// Objects returns the list of resource/name for those resources created by
+// the operator for this spec and those resources referenced by this operator.
+// Mark resources as owned, referred
+func (s *AirflowBase) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+	r := rsrc.(*alpha1.AirflowBase)
+	selectors := make(map[string]string)
+	for k, v := range rsrclabels {
+		selectors[k] = v
+	}
+	delete(selectors, reconciler.LabelUsing)
+	ngdata := templateValue(r, common.ValueAirflowComponentBase, "", rsrclabels, selectors, nil)
+	ngdata.Expected = aggregated
+
+	return k8s.NewBag().
+		WithValue(ngdata).
+		//WithTemplate("base-application.yaml", &app.ApplicationList{}, appcrd).
+		Build()
+}
+
+// UpdateStatus use reconciled objects to update component status
+func (s *AirflowBase) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+	return updateStatus(rsrc, reconciled, err)
 }

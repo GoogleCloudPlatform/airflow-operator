@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	kbc "sigs.k8s.io/kubesdk/pkg/kbcontroller"
 )
 
 var c client.Client
@@ -61,8 +60,9 @@ func TestReconcile(t *testing.T) {
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 	c = mgr.GetClient()
 
-	recFn, requests := SetupTestReconcile(newReconciler(mgr))
-	g.Expect(kbc.CreateController("airflowbase", mgr, &airflowv1alpha1.AirflowBase{}, recFn)).NotTo(gomega.HaveOccurred())
+	r := newReconciler(mgr)
+	recFn, requests := SetupTestReconcile(r)
+	g.Expect(r.Controller(recFn)).NotTo(gomega.HaveOccurred())
 
 	stopMgr, mgrStopped := StartTestManager(mgr, g)
 

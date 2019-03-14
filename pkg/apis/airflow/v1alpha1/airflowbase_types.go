@@ -21,17 +21,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"sigs.k8s.io/kubesdk/pkg/component"
-	"sigs.k8s.io/kubesdk/pkg/finalizer"
-	"sigs.k8s.io/kubesdk/pkg/status"
+	"sigs.k8s.io/controller-reconciler/pkg/finalizer"
+	"sigs.k8s.io/controller-reconciler/pkg/status"
 )
 
 // defaults and constant strings
 const (
-	defaultMySQLImage      = "mysql"
-	defaultMySQLVersion    = "5.7"
-	defaultPostgresImage   = "postgres"
-	defaultPostgresVersion = "9.5"
+	DefaultMySQLImage      = "mysql"
+	DefaultMySQLVersion    = "5.7"
+	DefaultPostgresImage   = "postgres"
+	DefaultPostgresVersion = "9.5"
 	defaultUIImage         = "gcr.io/airflow-operator/airflow"
 	defaultUIVersion       = "1.10.2"
 	defaultFlowerVersion   = "1.10.2"
@@ -422,10 +421,10 @@ func (b *AirflowBase) ApplyDefaults() {
 			b.Spec.MySQL.Replicas = defaultDBReplicas
 		}
 		if b.Spec.MySQL.Image == "" {
-			b.Spec.MySQL.Image = defaultMySQLImage
+			b.Spec.MySQL.Image = DefaultMySQLImage
 		}
 		if b.Spec.MySQL.Version == "" {
-			b.Spec.MySQL.Version = defaultMySQLVersion
+			b.Spec.MySQL.Version = DefaultMySQLVersion
 		}
 		if b.Spec.MySQL.Backup != nil {
 			if b.Spec.MySQL.Backup.Storage.StorageProvider == "" {
@@ -444,10 +443,10 @@ func (b *AirflowBase) ApplyDefaults() {
 			b.Spec.Postgres.Replicas = defaultDBReplicas
 		}
 		if b.Spec.Postgres.Image == "" {
-			b.Spec.Postgres.Image = defaultPostgresImage
+			b.Spec.Postgres.Image = DefaultPostgresImage
 		}
 		if b.Spec.Postgres.Version == "" {
-			b.Spec.Postgres.Version = defaultPostgresVersion
+			b.Spec.Postgres.Version = DefaultPostgresVersion
 		}
 	}
 	if b.Spec.Storage != nil {
@@ -508,50 +507,6 @@ func (b *AirflowBase) Validate() error {
 	}
 
 	return errs.ToAggregate()
-}
-
-// Components returns components for this resource
-func (b *AirflowBase) Components() []component.Component {
-	c := []component.Component{}
-	if b.Spec.MySQL != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.MySQL,
-			Name:     ValueAirflowComponentMySQL,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.Postgres != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.Postgres,
-			Name:     ValueAirflowComponentPostgres,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.Storage != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.Storage,
-			Name:     ValueAirflowComponentNFS,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	if b.Spec.SQLProxy != nil {
-		c = append(c, component.Component{
-			Handle:   b.Spec.SQLProxy,
-			Name:     ValueAirflowComponentSQLProxy,
-			CR:       b,
-			OwnerRef: b.OwnerRef(),
-		})
-	}
-	c = append(c, component.Component{
-		Handle:   b,
-		Name:     ValueAirflowComponentBase,
-		CR:       b,
-		OwnerRef: b.OwnerRef(),
-	})
-	return c
 }
 
 // OwnerRef returns owner ref object with the component's resource as owner

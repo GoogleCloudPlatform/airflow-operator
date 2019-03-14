@@ -20,7 +20,7 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	"sigs.k8s.io/kubesdk/pkg/test"
+	"sigs.k8s.io/controller-reconciler/pkg/test"
 )
 
 const (

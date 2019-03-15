@@ -11,29 +11,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gcs
+package disk
 
 import (
 	"context"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/storage/v1"
+	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/gcp"
-	"strings"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp"
 )
 
 // constants
 const (
-	Type      = "gcs"
+	Type      = "disk"
 	UserAgent = "kcc/controller-manager"
 )
 
 // RsrcManager - complies with resource manager interface
 type RsrcManager struct {
 	name    string
-	service *storage.Service
+	service *compute.Service
 }
 
 // Getter returns nil manager
@@ -67,15 +66,15 @@ func (rm *RsrcManager) WithName(v string) *RsrcManager {
 }
 
 // WithService adds storage service
-func (rm *RsrcManager) WithService(s *storage.Service) *RsrcManager {
+func (rm *RsrcManager) WithService(s *compute.Service) *RsrcManager {
 	rm.service = s
 	return rm
 }
 
-// Object - GCS object
+// Object - PD object
 type Object struct {
-	Bucket    *storage.Bucket
-	ProjectID string
+	Obj     *compute.Disk
+	Project string
 }
 
 // SetOwnerReferences - return name string
@@ -85,7 +84,7 @@ func (o *Object) SetOwnerReferences(refs *metav1.OwnerReference) bool { return f
 func (o *Object) IsSameAs(a interface{}) bool {
 	same := false
 	e := a.(*Object)
-	if e.Bucket.Name == o.Bucket.Name {
+	if e.Obj.Name == o.Obj.Name {
 		same = true
 	}
 	return same
@@ -93,7 +92,7 @@ func (o *Object) IsSameAs(a interface{}) bool {
 
 // GetName - return name string
 func (o *Object) GetName() string {
-	return "gcs-bucket/" + o.ProjectID + "/" + o.Bucket.Location + "/" + o.Bucket.Name
+	return "pd/" + o.Project + "/" + o.Obj.Zone + "/" + o.Obj.Name
 }
 
 // Observable captures the k8s resource info and selector to fetch child resources
@@ -101,36 +100,35 @@ type Observable struct {
 	// Labels list of labels
 	Labels map[string]string
 	// Object
-	Obj *storage.Bucket
+	Obj *compute.Disk
 	// Project
-	ProjectID string
+	Project string
 }
 
-// AsItem wraps object as resource item
-func (o *Object) AsItem() *object.Item {
-	return &object.Item{
+// AsReconcilerObject wraps object as resource item
+func (o *Object) AsReconcilerObject() *reconciler.Object {
+	return &reconciler.Object{
 		Obj:       o,
-		Lifecycle: object.LifecycleManaged,
+		Lifecycle: reconciler.LifecycleManaged,
 		Type:      Type,
 	}
 }
 
 // NewObservable returns an observable object
-func NewObservable(o *Object, labels map[string]string) object.Observable {
-	return object.Observable{
+func NewObservable(b *compute.Disk, labels map[string]string) reconciler.Observable {
+	return reconciler.Observable{
 		Type: Type,
 		Obj: Observable{
-			Labels:    labels,
-			Obj:       o.Bucket,
-			ProjectID: o.ProjectID,
+			Labels: labels,
+			Obj:    b,
 		},
 	}
 }
 
 // ObservablesFromObjects returns ObservablesFromObjects
-func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string]string) []object.Observable {
-	var observables []object.Observable
-	for _, item := range bag.Items() {
+func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels map[string]string) []reconciler.Observable {
+	var observables []reconciler.Observable
+	for _, item := range bag {
 		if item.Type != Type {
 			continue
 		}
@@ -138,95 +136,94 @@ func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string
 		if !ok {
 			continue
 		}
-		observables = append(observables, NewObservable(obj, labels))
+		observables = append(observables, NewObservable(obj.Obj, labels))
 
 	}
 	return observables
 }
 
 // SpecDiffers - check if the spec part differs
-func (rm *RsrcManager) SpecDiffers(expected, observed *object.Item) bool {
-	e := expected.Obj.(*Object).Bucket
-	o := observed.Obj.(*Object).Bucket
-	return !reflect.DeepEqual(e.Acl, o.Acl) ||
-		!reflect.DeepEqual(e.Billing, o.Billing) ||
-		!reflect.DeepEqual(e.Cors, o.Cors) ||
-		!reflect.DeepEqual(e.DefaultEventBasedHold, o.DefaultEventBasedHold) ||
-		!reflect.DeepEqual(e.Encryption, o.Encryption) ||
-		!reflect.DeepEqual(e.Labels, o.Labels) ||
-		!reflect.DeepEqual(e.Lifecycle, o.Lifecycle) ||
-		!strings.EqualFold(e.Location, o.Location) ||
-		!reflect.DeepEqual(e.Logging, o.Logging) ||
+func (rm *RsrcManager) SpecDiffers(expected, observed *reconciler.Object) bool {
+	e := expected.Obj.(*Object).Obj
+	o := observed.Obj.(*Object).Obj
+	// TODO
+	return !reflect.DeepEqual(e.Labels, o.Labels) ||
 		!reflect.DeepEqual(e.Name, o.Name) ||
-		!reflect.DeepEqual(e.Owner, o.Owner) ||
-		!reflect.DeepEqual(e.StorageClass, o.StorageClass) ||
-		!reflect.DeepEqual(e.Versioning, o.Versioning) ||
-		!reflect.DeepEqual(e.Website, o.Website)
+		!reflect.DeepEqual(e.SizeGb, o.SizeGb)
 }
 
 // Observe - get resources
-func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, error) {
-	var returnval *object.Bag = new(object.Bag)
+func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconciler.Object, error) {
+	var returnval []reconciler.Object
 	for _, item := range observables {
 		obs, ok := item.Obj.(Observable)
 		if !ok {
 			continue
 		}
-		bkt, err := rm.service.Buckets.Get(obs.Obj.Name).Do()
+		d := obs.Obj
+		disk, err := rm.service.Disks.Get(obs.Project, d.Zone, d.Name).Do()
 		if err != nil {
-			if gcp.IsNotFound(err) {
-				continue
-			}
-			return &object.Bag{}, err
+			return []reconciler.Object{}, err
 		}
-		obj := Object{Bucket: bkt, ProjectID: obs.ProjectID}
-		returnval.Add(*obj.AsItem())
+		obj := Object{Obj: disk}
+		returnval = append(returnval, *obj.AsReconcilerObject())
 	}
 	return returnval, nil
 }
 
 // Update - Generic client update
-func (rm *RsrcManager) Update(item object.Item) error {
-	bkt := item.Obj.(*Object).Bucket
-	_, err := rm.service.Buckets.Patch(bkt.Name, bkt).Do()
-	return err
+func (rm *RsrcManager) Update(item reconciler.Object) error {
+	//obj := item.Obj.(*Object)
+	//d := obj.Obj
+	//size := compute.DisksResizeRequest{SizeGb: d.SizeGb}
+	//_, err := rm.service.Disks.Resize(obj.Project, d.Zone, d.Name, &size).Do()
+	//return err
+	return nil
 }
 
 // Create - Generic client create
-func (rm *RsrcManager) Create(item object.Item) error {
-	o := item.Obj.(*Object)
-	_, err := rm.service.Buckets.Insert(o.ProjectID, o.Bucket).Do()
+func (rm *RsrcManager) Create(item reconciler.Object) error {
+	obj := item.Obj.(*Object)
+	d := obj.Obj
+	_, err := rm.service.Disks.Insert(obj.Project, d.Zone, d).Do()
 	return err
 }
 
 // Delete - Generic client delete
-func (rm *RsrcManager) Delete(item object.Item) error {
-	bkt := item.Obj.(*Object).Bucket
-	err := rm.service.Buckets.Delete(bkt.Name).Do()
+func (rm *RsrcManager) Delete(item reconciler.Object) error {
+	obj := item.Obj.(*Object)
+	d := obj.Obj
+	_, err := rm.service.Disks.Delete(obj.Project, d.Zone, d.Name).Do()
 	return err
 }
 
 // NewObject return a new object
-func NewObject(name string) (*Object, error) {
+func NewObject(name string, size int64) (*Object, error) {
 	project, err := gcp.GetProjectFromMetadata()
 	if err != nil {
 		return nil, err
 	}
+	zone, err := gcp.GetProjectFromMetadata()
+	if err != nil {
+		return nil, err
+	}
 	return &Object{
-		Bucket: &storage.Bucket{
-			Name: name,
+		Obj: &compute.Disk{
+			Name:   name,
+			Zone:   zone,
+			SizeGb: size,
 		},
-		ProjectID: project,
+		Project: project,
 	}, nil
 }
 
 // NewService returns a new client
-func NewService(ctx context.Context) (*storage.Service, error) {
-	httpClient, err := google.DefaultClient(ctx, storage.CloudPlatformScope)
+func NewService(ctx context.Context) (*compute.Service, error) {
+	httpClient, err := google.DefaultClient(ctx, compute.CloudPlatformScope)
 	if err != nil {
 		return nil, err
 	}
-	client, err := storage.New(httpClient)
+	client, err := compute.New(httpClient)
 	if err != nil {
 		return nil, err
 	}

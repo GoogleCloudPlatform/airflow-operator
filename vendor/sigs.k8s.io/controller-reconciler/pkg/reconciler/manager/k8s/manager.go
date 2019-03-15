@@ -32,8 +32,8 @@ import (
 	"log"
 	"os"
 	"reflect"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 	"text/template"
@@ -172,17 +172,17 @@ type LocalObjectReference struct {
 	corev1.LocalObjectReference `json:",inline"`
 }
 
-// AsItem wraps object as resource item
-func (o *Object) AsItem() *object.Item {
-	return &object.Item{
+// AsReconcilerObject wraps object as resource item
+func (o *Object) AsReconcilerObject() *reconciler.Object {
+	return &reconciler.Object{
 		Obj:       o,
-		Lifecycle: object.LifecycleManaged,
+		Lifecycle: reconciler.LifecycleManaged,
 		Type:      Type,
 	}
 }
 
 // itemFromReader reads Object from []byte spec
-func itemFromReader(name string, b *bufio.Reader, data interface{}, list metav1.ListInterface) (*object.Item, error) {
+func itemFromReader(name string, b *bufio.Reader, data interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
 	var exdoc bytes.Buffer
 	r := yaml.NewYAMLReader(b)
 	doc, err := r.Read()
@@ -196,9 +196,9 @@ func itemFromReader(name string, b *bufio.Reader, data interface{}, list metav1.
 				obj, _, e := d.Decode(exdoc.Bytes(), nil, nil)
 				err = e
 				if err == nil {
-					return &object.Item{
+					return &reconciler.Object{
 						Type:      Type,
-						Lifecycle: object.LifecycleManaged,
+						Lifecycle: reconciler.LifecycleManaged,
 						Obj: &Object{
 							Obj:     obj.DeepCopyObject().(metav1.Object),
 							ObjList: list,
@@ -214,12 +214,12 @@ func itemFromReader(name string, b *bufio.Reader, data interface{}, list metav1.
 }
 
 // ItemFromString populates Object from string spec
-func ItemFromString(name, spec string, values interface{}, list metav1.ListInterface) (*object.Item, error) {
+func ItemFromString(name, spec string, values interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
 	return itemFromReader(name, bufio.NewReader(strings.NewReader(spec)), values, list)
 }
 
 // ItemFromFile populates Object from file
-func ItemFromFile(path string, values interface{}, list metav1.ListInterface) (*object.Item, error) {
+func ItemFromFile(path string, values interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
 	f, err := os.Open(path)
 	if err == nil {
 		return itemFromReader(path, bufio.NewReader(f), values, list)
@@ -228,8 +228,8 @@ func ItemFromFile(path string, values interface{}, list metav1.ListInterface) (*
 }
 
 // ItemsFromFiles populates Object from file
-func ItemsFromFiles(values interface{}, fileResources []FileResource) ([]object.Item, error) {
-	items := []object.Item{}
+func ItemsFromFiles(values interface{}, fileResources []FileResource) ([]reconciler.Object, error) {
+	items := []reconciler.Object{}
 	for _, fr := range fileResources {
 		o, err := ItemFromFile(fr.Path, values, fr.ObjList)
 		if err != nil {
@@ -241,8 +241,8 @@ func ItemsFromFiles(values interface{}, fileResources []FileResource) ([]object.
 }
 
 // NewObservable returns an observable object
-func NewObservable(list metav1.ListInterface, labels map[string]string) object.Observable {
-	return object.Observable{
+func NewObservable(list metav1.ListInterface, labels map[string]string) reconciler.Observable {
+	return reconciler.Observable{
 		Type: Type,
 		Obj: Observable{
 			ObjList: list,
@@ -252,11 +252,11 @@ func NewObservable(list metav1.ListInterface, labels map[string]string) object.O
 }
 
 // ObservablesFromObjects returns ObservablesFromObjects
-func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string]string) []object.Observable {
+func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels map[string]string) []reconciler.Observable {
 	var gk schema.GroupKind
-	var observables []object.Observable
+	var observables []reconciler.Observable
 	gkmap := map[schema.GroupKind]struct{}{}
-	for _, item := range bag.Items() {
+	for _, item := range bag {
 		if item.Type != Type {
 			continue
 		}
@@ -282,7 +282,7 @@ func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string
 			}
 			if _, ok := gkmap[gk]; !ok {
 				gkmap[gk] = struct{}{}
-				observable := object.Observable{
+				observable := reconciler.Observable{
 					Type: Type,
 					Obj: Observable{
 						ObjList: obj.ObjList,
@@ -292,7 +292,7 @@ func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string
 				observables = append(observables, observable)
 			}
 		} else {
-			observable := object.Observable{
+			observable := reconciler.Observable{
 				Type: Type,
 				Obj: Observable{
 					Obj: obj.Obj,
@@ -321,8 +321,8 @@ func (s *LocalObjectReference) Validate(fp *field.Path, sfield string, errs fiel
 }
 
 // FilterObservable - remove from observable
-func FilterObservable(observable []object.Observable, list metav1.ListInterface) []object.Observable {
-	var filtered []object.Observable
+func FilterObservable(observable []reconciler.Observable, list metav1.ListInterface) []reconciler.Observable {
+	var filtered []reconciler.Observable
 	ltype := reflect.TypeOf(list).String()
 	for i := range observable {
 		otype := ""
@@ -339,21 +339,21 @@ func FilterObservable(observable []object.Observable, list metav1.ListInterface)
 }
 
 // ReferredItem returns a reffered object
-func ReferredItem(obj metav1.Object, name, namespace string) object.Item {
+func ReferredItem(obj metav1.Object, name, namespace string) reconciler.Object {
 	obj.SetName(name)
 	obj.SetNamespace(namespace)
-	return object.Item{
-		Lifecycle: object.LifecycleReferred,
+	return reconciler.Object{
+		Lifecycle: reconciler.LifecycleReferred,
 		Type:      Type,
 		Obj:       &Object{Obj: obj},
 	}
 }
 
 // GetItem returns an item which matched the kind and name
-func GetItem(b *object.Bag, inobj metav1.Object, name, namespace string) metav1.Object {
+func GetItem(b []reconciler.Object, inobj metav1.Object, name, namespace string) metav1.Object {
 	inobj.SetName(name)
 	inobj.SetNamespace(namespace)
-	for _, item := range b.ByType(Type) {
+	for _, item := range reconciler.ObjectsByType(b, Type) {
 		obj := item.Obj.(*Object)
 		otype := reflect.TypeOf(obj.Obj).String()
 		intype := reflect.TypeOf(inobj).String()
@@ -364,9 +364,10 @@ func GetItem(b *object.Bag, inobj metav1.Object, name, namespace string) metav1.
 	return nil
 }
 
+/* TODO
 // Remove returns an item which matched the kind and name
-func Remove(b *object.Bag, inobj metav1.Object) {
-	for i, item := range b.Items() {
+func Remove(b []reconciler.Object, inobj metav1.Object) {
+	for i, item := range reconciler.ObjectsByType(b, Type) {
 		if item.Type == Type {
 			obj := item.Obj.(*Object)
 			otype := reflect.TypeOf(obj.Obj).String()
@@ -378,11 +379,12 @@ func Remove(b *object.Bag, inobj metav1.Object) {
 		}
 	}
 }
+*/
 
 // Objs get items from the Object bag
-func Objs(b *object.Bag) []metav1.Object {
+func Objs(b []reconciler.Object) []metav1.Object {
 	var objs []metav1.Object
-	for _, item := range b.ByType(Type) {
+	for _, item := range reconciler.ObjectsByType(b, Type) {
 		o := item.Obj.(*Object)
 		objs = append(objs, o.Obj)
 	}
@@ -390,7 +392,7 @@ func Objs(b *object.Bag) []metav1.Object {
 }
 
 // CopyMutatedSpecFields - copy known mutated fields from observed to expected
-func CopyMutatedSpecFields(to *object.Item, from *object.Item) {
+func CopyMutatedSpecFields(to *reconciler.Object, from *reconciler.Object) {
 	e := to.Obj.(*Object)
 	o := from.Obj.(*Object)
 	e.Obj.SetOwnerReferences(o.Obj.GetOwnerReferences())
@@ -407,7 +409,7 @@ func CopyMutatedSpecFields(to *object.Item, from *object.Item) {
 }
 
 // SpecDiffers - check if the spec part differs
-func (rm *RsrcManager) SpecDiffers(expected, observed *object.Item) bool {
+func (rm *RsrcManager) SpecDiffers(expected, observed *reconciler.Object) bool {
 	e := expected.Obj.(*Object)
 	o := observed.Obj.(*Object)
 
@@ -433,11 +435,11 @@ func (rm *RsrcManager) SpecDiffers(expected, observed *object.Item) bool {
 }
 
 // Observe - get resources
-func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, error) {
-	var returnval *object.Bag = new(object.Bag)
+func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconciler.Object, error) {
+	var returnval []reconciler.Object
 	var err error
 	for _, item := range observables {
-		var resources []object.Item
+		var resources []reconciler.Object
 		obs, ok := item.Obj.(Observable)
 		if !ok {
 			continue
@@ -451,7 +453,7 @@ func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, e
 				items, err := meta.ExtractList(obs.ObjList.(runtime.Object))
 				if err == nil {
 					for _, item := range items {
-						resources = append(resources, object.Item{Type: Type, Obj: &Object{Obj: item.(metav1.Object)}})
+						resources = append(resources, reconciler.Object{Type: Type, Obj: &Object{Obj: item.(metav1.Object)}})
 					}
 				}
 				/*
@@ -474,7 +476,7 @@ func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, e
 				obs.Obj.(runtime.Object))
 			if err == nil {
 				log.Printf("   >>get: %s", otype+"/"+namespace+"/"+name)
-				resources = append(resources, object.Item{Type: Type, Obj: &Object{Obj: obs.Obj}})
+				resources = append(resources, reconciler.Object{Type: Type, Obj: &Object{Obj: obs.Obj}})
 			} else {
 				log.Printf("   >>>ERR get: %s", otype+"/"+namespace+"/"+name)
 			}
@@ -483,25 +485,25 @@ func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, e
 			return nil, err
 		}
 		for _, resource := range resources {
-			returnval.Add(resource)
+			returnval = append(returnval, resource)
 		}
 	}
 	return returnval, nil
 }
 
 // Update - Generic client update
-func (rm *RsrcManager) Update(item object.Item) error {
+func (rm *RsrcManager) Update(item reconciler.Object) error {
 	return rm.client.Update(context.TODO(), item.Obj.(*Object).Obj.(runtime.Object).DeepCopyObject())
 
 }
 
 // Create - Generic client create
-func (rm *RsrcManager) Create(item object.Item) error {
+func (rm *RsrcManager) Create(item reconciler.Object) error {
 	return rm.client.Create(context.TODO(), item.Obj.(*Object).Obj.(runtime.Object))
 }
 
 // Delete - Generic client delete
-func (rm *RsrcManager) Delete(item object.Item) error {
+func (rm *RsrcManager) Delete(item reconciler.Object) error {
 	return rm.client.Delete(context.TODO(), item.Obj.(*Object).Obj.(runtime.Object))
 }
 
@@ -511,46 +513,46 @@ func Get(rm manager.Manager, nn types.NamespacedName, o runtime.Object) error {
 	return krm.client.Get(context.TODO(), nn, o)
 }
 
-//---------------------- Bag ---------------------------------------
+//---------------------- Objects ---------------------------------------
 
-// Bag internal
-type Bag struct {
-	bag    *object.Bag
+// Objects internal
+type Objects struct {
+	bag    []reconciler.Object
 	folder string
 	err    error
 	value  interface{}
 }
 
-// NewBag returns nag
-func NewBag() *Bag {
-	return &Bag{
-		bag:    new(object.Bag),
+// NewObjects returns nag
+func NewObjects() *Objects {
+	return &Objects{
+		bag:    []reconciler.Object{},
 		folder: "templates/",
 		err:    nil,
 	}
 }
 
 //WithValue injects template value
-func (b *Bag) WithValue(value interface{}) *Bag {
+func (b *Objects) WithValue(value interface{}) *Objects {
 	b.value = value
 	return b
 }
 
 //WithFolder injects folder
-func (b *Bag) WithFolder(path string) *Bag {
+func (b *Objects) WithFolder(path string) *Objects {
 	b.folder = path
 	return b
 }
 
 //WithTemplate - add an item from template
-func (b *Bag) WithTemplate(file string, list metav1.ListInterface, mutators ...func(*object.Item, interface{})) *Bag {
+func (b *Objects) WithTemplate(file string, list metav1.ListInterface, mutators ...func(*reconciler.Object, interface{})) *Objects {
 	item, err := ItemFromFile(b.folder+file, b.value, list)
 
 	if err == nil {
 		for _, fn := range mutators {
 			fn(item, b.value)
 		}
-		b.bag.Add(*item)
+		b.bag = append(b.bag, *item)
 	} else {
 		// TODO accumulate vs overwrite
 		b.err = err
@@ -559,57 +561,57 @@ func (b *Bag) WithTemplate(file string, list metav1.ListInterface, mutators ...f
 }
 
 // WithReferredItem returns a reffered object
-func (b *Bag) WithReferredItem(obj metav1.Object, name, namespace string) *Bag {
+func (b *Objects) WithReferredItem(obj metav1.Object, name, namespace string) *Objects {
 	obj.SetName(name)
 	obj.SetNamespace(namespace)
-	o := object.Item{
-		Lifecycle: object.LifecycleReferred,
+	o := reconciler.Object{
+		Lifecycle: reconciler.LifecycleReferred,
 		Type:      Type,
 		Obj:       &Object{Obj: obj},
 	}
-	b.bag.Add(o)
+	b.bag = append(b.bag, o)
 	return b
 }
 
 //Build - process
-func (b *Bag) Build() (*object.Bag, error) {
+func (b *Objects) Build() ([]reconciler.Object, error) {
 	return b.bag, b.err
 }
 
-// --------------------- ObservableBag -------------------------------
+// --------------------- Observables -------------------------------
 
-// ObservableBag - i
-type ObservableBag struct {
-	observables []object.Observable
-	labels      object.KVMap
+// Observables - i
+type Observables struct {
+	observables []reconciler.Observable
+	labels      reconciler.KVMap
 }
 
 // NewObservables - observables
-func NewObservables() *ObservableBag {
-	return &ObservableBag{
-		observables: []object.Observable{},
+func NewObservables() *Observables {
+	return &Observables{
+		observables: []reconciler.Observable{},
 	}
 }
 
 // WithLabels - inject labels
-func (o *ObservableBag) WithLabels(labels object.KVMap) *ObservableBag {
+func (o *Observables) WithLabels(labels reconciler.KVMap) *Observables {
 	o.labels = labels
 	return o
 }
 
 // For - add
-func (o *ObservableBag) For(list metav1.ListInterface) *ObservableBag {
+func (o *Observables) For(list metav1.ListInterface) *Observables {
 	o.observables = append(o.observables, NewObservable(list, o.labels))
 	return o
 }
 
 // Add - add
-func (o *ObservableBag) Add(obs object.Observable) *ObservableBag {
+func (o *Observables) Add(obs reconciler.Observable) *Observables {
 	o.observables = append(o.observables, obs)
 	return o
 }
 
 // Get - return observable array
-func (o *ObservableBag) Get() []object.Observable {
+func (o *Observables) Get() []reconciler.Observable {
 	return o.observables
 }

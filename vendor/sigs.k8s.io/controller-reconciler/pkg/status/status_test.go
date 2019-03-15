@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 	"sigs.k8s.io/controller-reconciler/pkg/status"
 )
 
@@ -41,7 +41,7 @@ var _ = Describe("Status", func() {
 	var cstatusU corev1.ConditionStatus = corev1.ConditionUnknown
 
 	var teststatus testStatus
-	resources := []object.Item{
+	resources := []reconciler.Object{
 		{
 			Type: k8s.Type,
 			Obj: &k8s.Object{
@@ -92,7 +92,7 @@ var _ = Describe("Status", func() {
 			},
 		},
 	}
-	stsNotOk := object.Item{
+	stsNotOk := reconciler.Object{
 		Type: k8s.Type,
 		Obj: &k8s.Object{
 			Obj: &appsv1.StatefulSet{
@@ -112,7 +112,7 @@ var _ = Describe("Status", func() {
 			},
 		},
 	}
-	pdbNotOk := object.Item{
+	pdbNotOk := reconciler.Object{
 		Type: k8s.Type,
 		Obj: &k8s.Object{
 			Obj: &policyv1.PodDisruptionBudget{

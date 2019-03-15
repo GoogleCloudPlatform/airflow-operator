@@ -28,11 +28,11 @@ import (
 	policyv1 "k8s.io/api/policy/v1beta1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/controller-reconciler/pkg/finalizer"
-	reconciler "sigs.k8s.io/controller-reconciler/pkg/genericreconciler"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/gcp"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/gcp/redis"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	gr "sigs.k8s.io/controller-reconciler/pkg/genericreconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp/redis"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 	"sigs.k8s.io/controller-reconciler/pkg/status"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sort"
@@ -69,8 +69,8 @@ func Add(mgr manager.Manager) error {
 	return r.Controller(nil)
 }
 
-func newReconciler(mgr manager.Manager) *reconciler.Reconciler {
-	return reconciler.
+func newReconciler(mgr manager.Manager) *gr.Reconciler {
+	return gr.
 		WithManager(mgr).
 		WithResourceManager(redis.Getter(context.TODO())).
 		For(&alpha1.AirflowCluster{}, alpha1.SchemeGroupVersion).
@@ -152,7 +152,7 @@ func IsPostgres(s *alpha1.AirflowBaseSpec) bool {
 	return postgres
 }
 
-func updateSts(o *object.Item, v interface{}) (*appsv1.StatefulSet, *common.TemplateValue) {
+func updateSts(o *reconciler.Object, v interface{}) (*appsv1.StatefulSet, *common.TemplateValue) {
 	r := v.(*common.TemplateValue)
 	sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 	sts.Spec.Template.Spec.Containers[0].Env = getAirflowEnv(r.Cluster, sts.Name, r.Base)
@@ -160,7 +160,7 @@ func updateSts(o *object.Item, v interface{}) (*appsv1.StatefulSet, *common.Temp
 	return sts, r
 }
 
-func templateValue(r *alpha1.AirflowCluster, dependent *object.Bag, component string, label, selector, ports map[string]string) *common.TemplateValue {
+func templateValue(r *alpha1.AirflowCluster, dependent []reconciler.Object, component string, label, selector, ports map[string]string) *common.TemplateValue {
 	b := k8s.GetItem(dependent, &alpha1.AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*alpha1.AirflowBase)
 	return &common.TemplateValue{
@@ -176,7 +176,7 @@ func templateValue(r *alpha1.AirflowCluster, dependent *object.Bag, component st
 	}
 }
 
-func appcrd(o *object.Item, v interface{}) {
+func appcrd(o *reconciler.Object, v interface{}) {
 	//r := v.(*common.TemplateValue)
 	//ao := application.Application{Application: *o.Obj.(*k8s.Object).Obj.(*app.Application)}
 	//o = ao.SetComponentGK(r.Expected).Item()
@@ -254,10 +254,10 @@ PGPASSWORD=$(SQL_ROOT_PASSWORD) psql -h $SQL_HOST -U postgres -c "CREATE USER $(
 	ss.Spec.Template.Spec.InitContainers = append(containers, ss.Spec.Template.Spec.InitContainers...)
 }
 
-func dependantResources(i interface{}) *object.Bag {
+func dependantResources(i interface{}) []reconciler.Object {
 	r := i.(*alpha1.AirflowCluster)
-	rsrc := &object.Bag{}
-	rsrc.Add(k8s.ReferredItem(&alpha1.AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace))
+	rsrc := []reconciler.Object{}
+	rsrc = append(rsrc, k8s.ReferredItem(&alpha1.AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace))
 	return rsrc
 }
 
@@ -400,7 +400,7 @@ func getAirflowEnv(r *alpha1.AirflowCluster, saName string, base *alpha1.Airflow
 // --------------- Global Cluster component -------------------------
 
 // Observables asd
-func (c *Cluster) Observables(labels map[string]string) []object.Observable {
+func (c *Cluster) Observables(labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		//For(&app.ApplicationList{}).
@@ -408,36 +408,36 @@ func (c *Cluster) Observables(labels map[string]string) []object.Observable {
 }
 
 // DependentResources - return dependant resources
-func (c *Cluster) DependentResources(rsrc interface{}) *object.Bag {
+func (c *Cluster) DependentResources(rsrc interface{}) []reconciler.Object {
 	return dependantResources(rsrc)
 }
 
 // Objects returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (c *Cluster) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+func (c *Cluster) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
 	r := rsrc.(*alpha1.AirflowCluster)
 
 	selectors := make(map[string]string)
 	for k, v := range rsrclabels {
 		selectors[k] = v
 	}
-	delete(selectors, reconciler.LabelUsing)
+	delete(selectors, gr.LabelUsing)
 
 	ngdata := templateValue(r, dependent, common.ValueAirflowComponentCluster, rsrclabels, selectors, nil)
 	ngdata.Expected = aggregated
 
-	return k8s.NewBag().
+	return k8s.NewObjects().
 		WithValue(ngdata).
 		//WithTemplate("cluster-application.yaml", &app.ApplicationList{}, appcrd).
 		Build()
 }
 
 // UpdateStatus use reconciled objects to update component status
-func (c *Cluster) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+func (c *Cluster) UpdateStatus(rsrc interface{}, reconciled []reconciler.Object, err error) time.Duration {
 	var period time.Duration
 	stts := &rsrc.(*alpha1.AirflowCluster).Status
-	ready := stts.ComponentMeta.UpdateStatus(reconciled.ByType(k8s.Type))
+	ready := stts.ComponentMeta.UpdateStatus(reconciler.ObjectsByType(reconciled, k8s.Type))
 	stts.Meta.UpdateStatus(&ready, err)
 	return period
 }
@@ -445,7 +445,7 @@ func (c *Cluster) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err err
 // ------------------------------ Airflow UI -----------------------------------
 
 // Observables asd
-func (s *UI) Observables(labels map[string]string) []object.Observable {
+func (s *UI) Observables(labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -454,19 +454,19 @@ func (s *UI) Observables(labels map[string]string) []object.Observable {
 }
 
 // DependentResources - return dependant resources
-func (s *UI) DependentResources(rsrc interface{}) *object.Bag {
+func (s *UI) DependentResources(rsrc interface{}) []reconciler.Object {
 	return dependantResources(rsrc)
 }
 
 // Objects returns the list of resource/name for those resources created by
-func (s *UI) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+func (s *UI) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.UI == nil {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 
 	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 
 	ngdata := templateValue(r, dependent, common.ValueAirflowComponentUI, rsrclabels, rsrclabels, map[string]string{"web": "8080"})
@@ -474,14 +474,14 @@ func (s *UI) Objects(rsrc interface{}, rsrclabels map[string]string, observed, d
 		"password": base64.StdEncoding.EncodeToString(common.RandomAlphanumericString(16)),
 	}
 
-	return k8s.NewBag().
+	return k8s.NewObjects().
 		WithValue(ngdata).
 		WithTemplate("ui-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
-		WithTemplate("secret.yaml", &corev1.SecretList{}, object.NoUpdate).
+		WithTemplate("secret.yaml", &corev1.SecretList{}, reconciler.NoUpdate).
 		Build()
 }
 
-func (s *UI) sts(o *object.Item, v interface{}) {
+func (s *UI) sts(o *reconciler.Object, v interface{}) {
 	sts, r := updateSts(o, v)
 	sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.UI.Resources
 	if IsPostgres(&r.Base.Spec) {
@@ -493,7 +493,7 @@ func (s *UI) sts(o *object.Item, v interface{}) {
 
 // ------------------------------ RedisSpec ---------------------------------------
 
-func (s Redis) sts(o *object.Item, v interface{}) {
+func (s Redis) sts(o *reconciler.Object, v interface{}) {
 	r := v.(*common.TemplateValue)
 	sts := o.Obj.(*k8s.Object).Obj.(*appsv1.StatefulSet)
 	sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Redis.Resources
@@ -503,7 +503,7 @@ func (s Redis) sts(o *object.Item, v interface{}) {
 }
 
 // Observables asd
-func (s *Redis) Observables(labels map[string]string) []object.Observable {
+func (s *Redis) Observables(labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -514,17 +514,17 @@ func (s *Redis) Observables(labels map[string]string) []object.Observable {
 }
 
 // DependentResources - return dependant resources
-func (s *Redis) DependentResources(rsrc interface{}) *object.Bag {
+func (s *Redis) DependentResources(rsrc interface{}) []reconciler.Object {
 	return dependantResources(rsrc)
 }
 
 // Objects returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *Redis) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+func (s *Redis) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.Redis == nil || r.Spec.Redis.RedisHost != "" {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 	ngdata := templateValue(r, dependent, common.ValueAirflowComponentRedis, rsrclabels, rsrclabels, map[string]string{"redis": "6379"})
 	ngdata.Secret = map[string]string{
@@ -532,10 +532,10 @@ func (s *Redis) Objects(rsrc interface{}, rsrclabels map[string]string, observed
 	}
 	ngdata.PDBMinAvail = "100%"
 
-	return k8s.NewBag().
+	return k8s.NewObjects().
 		WithValue(ngdata).
 		WithTemplate("redis-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
-		WithTemplate("secret.yaml", &corev1.SecretList{}, object.NoUpdate).
+		WithTemplate("secret.yaml", &corev1.SecretList{}, reconciler.NoUpdate).
 		WithTemplate("pdb.yaml", &policyv1.PodDisruptionBudgetList{}).
 		WithTemplate("svc.yaml", &corev1.ServiceList{}).
 		Build()
@@ -624,7 +624,7 @@ func dagContainer(s *alpha1.DagSpec, volName string) (bool, corev1.Container) {
 	return init, container
 }
 
-func (s *Scheduler) sts(o *object.Item, v interface{}) {
+func (s *Scheduler) sts(o *reconciler.Object, v interface{}) {
 	sts, r := updateSts(o, v)
 	if r.Cluster.Spec.Executor == alpha1.ExecutorK8s {
 		sts.Spec.Template.Spec.ServiceAccountName = sts.Name
@@ -634,18 +634,18 @@ func (s *Scheduler) sts(o *object.Item, v interface{}) {
 }
 
 // DependentResources - return dependant resources
-func (s *Scheduler) DependentResources(rsrc interface{}) *object.Bag {
+func (s *Scheduler) DependentResources(rsrc interface{}) []reconciler.Object {
 	r := rsrc.(*alpha1.AirflowCluster)
 	resources := dependantResources(rsrc)
 	if r.Spec.Executor == alpha1.ExecutorK8s {
 		sqlSecret := common.RsrcName(r.Name, common.ValueAirflowComponentUI, "")
-		resources.Add(k8s.ReferredItem(&corev1.Secret{}, sqlSecret, r.Namespace))
+		resources = append(resources, k8s.ReferredItem(&corev1.Secret{}, sqlSecret, r.Namespace))
 	}
 	return resources
 }
 
 // Observables - get
-func (s *Scheduler) Observables(labels map[string]string) []object.Observable {
+func (s *Scheduler) Observables(labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -658,19 +658,19 @@ func (s *Scheduler) Observables(labels map[string]string) []object.Observable {
 // Objects returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *Scheduler) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+func (s *Scheduler) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.Scheduler == nil {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 
 	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 
 	b := k8s.GetItem(dependent, &alpha1.AirflowBase{}, r.Spec.AirflowBaseRef.Name, r.Namespace)
 	base := b.(*alpha1.AirflowBase)
-	bag := k8s.NewBag()
+	bag := k8s.NewObjects()
 	if r.Spec.DAGs != nil {
 		git := r.Spec.DAGs.Git
 		if git != nil && git.CredSecretRef != nil {
@@ -700,20 +700,20 @@ func (s *Scheduler) Objects(rsrc interface{}, rsrclabels map[string]string, obse
 	}
 
 	return bag.WithTemplate("scheduler-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
-		WithTemplate("serviceaccount.yaml", &corev1.ServiceAccountList{}, object.NoUpdate).
+		WithTemplate("serviceaccount.yaml", &corev1.ServiceAccountList{}, reconciler.NoUpdate).
 		WithTemplate("rolebinding.yaml", &rbacv1.RoleBindingList{}).
 		Build()
 }
 
 // ------------------------------ Worker ----------------------------------------
 
-func (s *Worker) sts(o *object.Item, v interface{}) {
+func (s *Worker) sts(o *reconciler.Object, v interface{}) {
 	sts, r := updateSts(o, v)
 	sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Worker.Resources
 }
 
 // Observables asd
-func (s *Worker) Observables(labels map[string]string) []object.Observable {
+func (s *Worker) Observables(labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -722,26 +722,26 @@ func (s *Worker) Observables(labels map[string]string) []object.Observable {
 }
 
 // DependentResources - return dependant resources
-func (s *Worker) DependentResources(rsrc interface{}) *object.Bag {
+func (s *Worker) DependentResources(rsrc interface{}) []reconciler.Object {
 	return dependantResources(rsrc)
 }
 
 // Objects returns the list of resource/name for those resources created by
 // the operator for this spec and those resources referenced by this operator.
 // Mark resources as owned, referred
-func (s *Worker) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+func (s *Worker) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.Worker == nil {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 
 	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 
 	ngdata := templateValue(r, dependent, common.ValueAirflowComponentWorker, rsrclabels, rsrclabels, map[string]string{"wlog": "8793"})
 
-	return k8s.NewBag().
+	return k8s.NewObjects().
 		WithValue(ngdata).
 		WithTemplate("worker-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
 		WithTemplate("headlesssvc.yaml", &corev1.ServiceList{}).
@@ -751,7 +751,7 @@ func (s *Worker) Objects(rsrc interface{}, rsrclabels map[string]string, observe
 // ------------------------------ Flower ---------------------------------------
 
 // Observables asd
-func (s *Flower) Observables(labels map[string]string) []object.Observable {
+func (s *Flower) Observables(labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -759,28 +759,28 @@ func (s *Flower) Observables(labels map[string]string) []object.Observable {
 }
 
 // DependentResources - return dependant resources
-func (s *Flower) DependentResources(rsrc interface{}) *object.Bag {
+func (s *Flower) DependentResources(rsrc interface{}) []reconciler.Object {
 	return dependantResources(rsrc)
 }
 
 // Objects returns the list of resource/name for those resources created by
-func (s *Flower) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
+func (s *Flower) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.Flower == nil {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 	if r.Spec.MemoryStore != nil && r.Spec.MemoryStore.Status.Host == "" {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 	ngdata := templateValue(r, dependent, common.ValueAirflowComponentFlower, rsrclabels, rsrclabels, map[string]string{"flower": "5555"})
 
-	return k8s.NewBag().
+	return k8s.NewObjects().
 		WithValue(ngdata).
 		WithTemplate("flower-sts.yaml", &appsv1.StatefulSetList{}, s.sts).
 		Build()
 }
 
-func (s *Flower) sts(o *object.Item, v interface{}) {
+func (s *Flower) sts(o *reconciler.Object, v interface{}) {
 	sts, r := updateSts(o, v)
 	sts.Spec.Template.Spec.Containers[0].Resources = r.Cluster.Spec.Flower.Resources
 }
@@ -788,21 +788,21 @@ func (s *Flower) sts(o *object.Item, v interface{}) {
 // ------------------------------ MemoryStore ---------------------------------------
 
 // DependentResources - return dependant resources
-func (s *MemoryStore) DependentResources(rsrc interface{}) *object.Bag {
+func (s *MemoryStore) DependentResources(rsrc interface{}) []reconciler.Object {
 	return dependantResources(rsrc)
 }
 
 // Observables for memstore
-func (s *MemoryStore) Observables(labels map[string]string) []object.Observable {
-	return []object.Observable{}
+func (s *MemoryStore) Observables(labels map[string]string) []reconciler.Observable {
+	return []reconciler.Observable{}
 }
 
 // Objects - returns resources
-func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error) {
-	var bag *object.Bag = new(object.Bag)
+func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
+	var bag []reconciler.Object
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.MemoryStore == nil {
-		return &object.Bag{}, nil
+		return []reconciler.Object{}, nil
 	}
 	splits := strings.Split(r.Spec.MemoryStore.Region, "-")
 	region := splits[0] + "-" + splits[1]
@@ -832,12 +832,12 @@ func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, ob
 	robj.MemorySizeGb = int64(r.Spec.MemoryStore.MemorySizeGb)
 	robj.Tier = strings.ToUpper(r.Spec.MemoryStore.Tier)
 
-	bag.Add(*obj.AsItem())
+	bag = append(bag, *obj.AsReconcilerObject())
 	return bag, nil
 }
 
 // UpdateStatus - update status block
-func (s *MemoryStore) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration {
+func (s *MemoryStore) UpdateStatus(rsrc interface{}, reconciled []reconciler.Object, err error) time.Duration {
 	var period time.Duration
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.MemoryStore == nil {
@@ -845,8 +845,8 @@ func (s *MemoryStore) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err
 	}
 	stts := &r.Spec.MemoryStore.Status
 	ready := false
-	if len(reconciled.Items()) != 0 {
-		instance := reconciled.Items()[0].Obj.(*redis.Object).Obj
+	if len(reconciled) != 0 {
+		instance := reconciled[0].Obj.(*redis.Object).Obj
 		stts.CreateTime = instance.CreateTime
 		stts.CurrentLocationID = instance.CurrentLocationId
 		stts.Host = instance.Host
@@ -866,21 +866,21 @@ func (s *MemoryStore) UpdateStatus(rsrc interface{}, reconciled *object.Bag, err
 }
 
 // Differs returns true if the resource needs to be updated
-func (s *MemoryStore) Differs(expected object.Item, observed object.Item) bool {
+func (s *MemoryStore) Differs(expected reconciler.Object, observed reconciler.Object) bool {
 	return true //differs(expected, observed)
 }
 
 // Finalize - finalizes MemoryStore component when it is deleted
-func (s *MemoryStore) Finalize(rsrc interface{}, observed, dependent *object.Bag) error {
+func (s *MemoryStore) Finalize(rsrc interface{}, observed, dependent []reconciler.Object) error {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.MemoryStore == nil {
 		return nil
 	}
 	obj := r.Spec.MemoryStore
 	obj.Status.NotReady("Finalizing", "Finalizing in progress")
-	if len(observed.Items()) != 0 {
+	if len(observed) != 0 {
 		finalizer.Add(r, finalizer.Cleanup)
-		items := observed.Items()
+		items := observed
 		for i := range items {
 			items[i].Delete = true
 		}

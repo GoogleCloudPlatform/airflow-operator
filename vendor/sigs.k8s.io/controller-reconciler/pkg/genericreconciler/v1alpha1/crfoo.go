@@ -24,9 +24,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"log"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 	"sigs.k8s.io/controller-reconciler/pkg/status"
 	crscheme "sigs.k8s.io/controller-runtime/pkg/runtime/scheme"
 )
@@ -70,15 +70,15 @@ type FooStatus struct {
 }
 
 // ExpectedResources - returns resources
-func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregate *object.Bag) (*object.Bag, error) {
-	var resources *object.Bag = new(object.Bag)
+func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregate []reconciler.Object) ([]reconciler.Object, error) {
+	var resources []reconciler.Object
 	r := rsrc.(*Foo)
 	n := r.ObjectMeta.Name
 	ns := r.ObjectMeta.Namespace
-	resources.Add(
-		[]object.Item{
+	resources = append(resources,
+		[]reconciler.Object{
 			{
-				Lifecycle: object.LifecycleManaged,
+				Lifecycle: reconciler.LifecycleManaged,
 				Type:      k8s.Type,
 				Obj: &k8s.Object{
 					ObjList: &appsv1.DeploymentList{},
@@ -92,7 +92,7 @@ func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]stri
 				},
 			},
 			{
-				Lifecycle: object.LifecycleManaged,
+				Lifecycle: reconciler.LifecycleManaged,
 				Type:      k8s.Type,
 				Obj: &k8s.Object{
 					ObjList: &corev1.ConfigMapList{},
@@ -114,8 +114,8 @@ func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]stri
 }
 
 // Observables - return selectors
-func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}, rsrclabels map[string]string, expected *object.Bag) []object.Observable {
-	return []object.Observable{
+func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}, rsrclabels map[string]string, expected []reconciler.Object) []reconciler.Observable {
+	return []reconciler.Observable{
 		{
 			Type: k8s.Type,
 			Obj: &k8s.Observable{
@@ -136,7 +136,7 @@ func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}
 }
 
 // UpdateComponentStatus - update status block
-func (s *FooSpec) UpdateComponentStatus(rsrci interface{}, reconciled *object.Bag, err error) {
+func (s *FooSpec) UpdateComponentStatus(rsrci interface{}, reconciled []reconciler.Object, err error) {
 	rsrc := rsrci.(*Foo)
 	rsrcstatus := &rsrc.Status
 	rsrcstatus.Component = "base " + status.StatusReady

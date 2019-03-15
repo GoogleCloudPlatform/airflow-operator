@@ -18,8 +18,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"reflect"
 	"sigs.k8s.io/controller-reconciler/pkg/finalizer"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"strings"
 	"time"
 )
@@ -34,28 +34,28 @@ const (
 
 // Handler is an interface for operating on logical Components of a resource
 type Handler interface {
-	Objects(rsrc interface{}, labels map[string]string, observed, dependent, aggregated *object.Bag) (*object.Bag, error)
-	Observables(labels map[string]string) []object.Observable
+	Objects(rsrc interface{}, labels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error)
+	Observables(labels map[string]string) []reconciler.Observable
 }
 
 // StatusInterface - interface to update compoennt status
 type StatusInterface interface {
-	UpdateStatus(rsrc interface{}, reconciled *object.Bag, err error) time.Duration
+	UpdateStatus(rsrc interface{}, reconciled []reconciler.Object, err error) time.Duration
 }
 
 // FinalizeInterface - finalize component
 type FinalizeInterface interface {
-	Finalize(rsrc interface{}, dependent, observed *object.Bag) error
+	Finalize(rsrc interface{}, dependent, observed []reconciler.Object) error
 }
 
 // DiffersInterface - call differs
 type DiffersInterface interface {
-	Differs(expected object.Item, observed object.Item) bool
+	Differs(expected reconciler.Object, observed reconciler.Object) bool
 }
 
 // DependentResourcesInterface - get dependent resources
 type DependentResourcesInterface interface {
-	DependentResources(rsrc interface{}) *object.Bag
+	DependentResources(rsrc interface{}) []reconciler.Object
 }
 
 // getLabels return
@@ -70,15 +70,15 @@ func getLabels(ro runtime.Object, using string) map[string]string {
 }
 
 // dependentResources Get dependent resources from component or defaults
-func dependentResources(h Handler, resource runtime.Object) *object.Bag {
+func dependentResources(h Handler, resource runtime.Object) []reconciler.Object {
 	if s, ok := h.(DependentResourcesInterface); ok {
 		return s.DependentResources(resource)
 	}
-	return &object.Bag{}
+	return []reconciler.Object{}
 }
 
 // differs - call differs
-func differs(h Handler, expected object.Item, observed object.Item) bool {
+func differs(h Handler, expected reconciler.Object, observed reconciler.Object) bool {
 	if s, ok := h.(DiffersInterface); ok {
 		return s.Differs(expected, observed)
 	}
@@ -86,7 +86,7 @@ func differs(h Handler, expected object.Item, observed object.Item) bool {
 }
 
 // finalize - Finalize component
-func finalize(h Handler, resource runtime.Object, observed, dependent *object.Bag) error {
+func finalize(h Handler, resource runtime.Object, observed, dependent []reconciler.Object) error {
 	if s, ok := h.(FinalizeInterface); ok {
 		return s.Finalize(resource, observed, dependent)
 	}
@@ -96,7 +96,7 @@ func finalize(h Handler, resource runtime.Object, observed, dependent *object.Ba
 }
 
 // updateStatus - update component status
-func updateStatus(h Handler, resource runtime.Object, reconciled *object.Bag, err error) time.Duration {
+func updateStatus(h Handler, resource runtime.Object, reconciled []reconciler.Object, err error) time.Duration {
 	var period time.Duration
 	if s, ok := h.(StatusInterface); ok {
 		return s.UpdateStatus(resource, reconciled, err)
@@ -105,8 +105,8 @@ func updateStatus(h Handler, resource runtime.Object, reconciled *object.Bag, er
 }
 
 // getAllObservables - get all observables
-func getAllObservables(rsrcmgr *manager.ResourceManager, bag *object.Bag, labels map[string]string) []object.Observable {
-	var observables []object.Observable
+func getAllObservables(rsrcmgr *manager.ResourceManager, bag []reconciler.Object, labels map[string]string) []reconciler.Observable {
+	var observables []reconciler.Observable
 	for _, m := range rsrcmgr.All() {
 		o := m.ObservablesFromObjects(bag, labels)
 		observables = append(observables, o...)

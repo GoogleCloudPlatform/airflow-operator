@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package object
+package reconciler
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,12 +24,6 @@ const (
 	LifecycleNoUpdate = "noupdate"
 )
 
-// Bag abstracts dealing with group of objects
-// For now it is a simple list
-type Bag struct {
-	items []Item
-}
-
 // Interface -
 type Interface interface {
 	GetName() string
@@ -37,8 +31,8 @@ type Interface interface {
 	SetOwnerReferences(*metav1.OwnerReference) bool
 }
 
-// Item is a container to capture the k8s resource info to be used by controller
-type Item struct {
+// Object is a container to capture the k8s resource info to be used by controller
+type Object struct {
 	// Lifecycle can be: managed, reference
 	Lifecycle string
 	// Type - object type
@@ -59,6 +53,3 @@ type Observable struct {
 
 // KVMap is a map[string]string
 type KVMap map[string]string
-
-// GetItemFn is a type for any function that returns resource info
-type GetItemFn func(interface{}) (*Item, error)

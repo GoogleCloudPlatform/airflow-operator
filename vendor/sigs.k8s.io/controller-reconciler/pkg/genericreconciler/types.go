@@ -16,7 +16,7 @@ package genericreconciler
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	rm "sigs.k8s.io/controller-reconciler/pkg/object/manager"
+	rm "sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )

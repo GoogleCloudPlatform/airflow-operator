@@ -19,8 +19,8 @@ import (
 	alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"math/rand"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 	"time"
 )
 
@@ -94,17 +94,17 @@ type TemplateValue struct {
 	SvcName     string
 	Base        *alpha1.AirflowBase
 	Cluster     *alpha1.AirflowCluster
-	Labels      object.KVMap
-	Selector    object.KVMap
+	Labels      reconciler.KVMap
+	Selector    reconciler.KVMap
 	Ports       map[string]string
 	Secret      map[string]string
 	PDBMinAvail string
-	Expected    *object.Bag
+	Expected    []reconciler.Object
 	SQLConn     string
 }
 
 // differs returns true if the resource needs to be updated
-func differs(expected object.Item, observed object.Item) bool {
+func differs(expected reconciler.Object, observed reconciler.Object) bool {
 	switch expected.Obj.(*k8s.Object).Obj.(type) {
 	case *corev1.ServiceAccount:
 		// Dont update a SA

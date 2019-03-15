@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package object_test
+package reconciler_test
 
 import (
 	//"fmt"
@@ -47,23 +47,23 @@ var _ = Describe("Resource", func() {
 	BeforeEach(func() {
 	})
 
-	Describe("ItemFromFile", func() {
+	Describe("ObjectFromFile", func() {
 		It("Object loading from file returns error with missing template variable", func(done Done) {
-			o, e := k8s.ItemFromFile("testdata/sts.yaml", fooval, &appsv1.StatefulSetList{})
+			o, e := k8s.ObjectFromFile("testdata/sts.yaml", fooval, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
 			close(done)
 		})
 		It("Object loading from file returns error with empty template field for maps", func(done Done) {
-			o, e := k8s.ItemFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ObjectFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
 			close(done)
 		})
 		It("Object loading from file returns error with missing template file", func(done Done) {
-			o, e := k8s.ItemFromFile("test/sts.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ObjectFromFile("test/sts.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
@@ -88,7 +88,7 @@ var _ = Describe("Resource", func() {
 				Version:  "v1.0",
 				Replicas: 1,
 			}
-			o, e := k8s.ItemFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ObjectFromFile("testdata/sts.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).To(BeNil())
 			Expect(o).NotTo(BeNil())
@@ -112,7 +112,7 @@ var _ = Describe("Resource", func() {
 					"k2": "v2",
 				},
 			}
-			o, e := k8s.ItemFromFile("testdata/unknown_rsrc.yaml", val, &appsv1.StatefulSetList{})
+			o, e := k8s.ObjectFromFile("testdata/unknown_rsrc.yaml", val, &appsv1.StatefulSetList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
@@ -143,7 +143,7 @@ spec:
 `
 
 		It("Pod loading from string fails for incorrectly formatted spec", func(done Done) {
-			o, e := k8s.ItemFromString("svc", "bad pod spec", fooval, &corev1.ServiceList{})
+			o, e := k8s.ObjectFromString("svc", "bad pod spec", fooval, &corev1.ServiceList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).NotTo(BeNil())
 			Expect(o).To(BeNil())
@@ -161,7 +161,7 @@ spec:
 					"k2": "v2",
 				},
 			}
-			o, e := k8s.ItemFromString("svc", svcspec, val, &corev1.ServiceList{})
+			o, e := k8s.ObjectFromString("svc", svcspec, val, &corev1.ServiceList{})
 			//fmt.Printf("%v\n", e)
 			Expect(e).To(BeNil())
 			Expect(o).NotTo(BeNil())

@@ -25,9 +25,9 @@ import (
 	urt "k8s.io/apimachinery/pkg/util/runtime"
 	"log"
 	"reflect"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	rmanager "sigs.k8s.io/controller-reconciler/pkg/object/manager"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	rmanager "sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 	build "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -52,7 +52,7 @@ func handleError(info string, name string, e error) error {
 	return e
 }
 
-func (gr *Reconciler) itemMgr(i object.Item) (rmanager.Manager, error) {
+func (gr *Reconciler) itemMgr(i reconciler.Object) (rmanager.Manager, error) {
 	m := gr.rsrcMgr.Get(i.Type)
 	if m == nil {
 		return m, fmt.Errorf("Resource Manager not registered for Type: %s", i.Type)
@@ -64,7 +64,7 @@ func (gr *Reconciler) itemMgr(i object.Item) (rmanager.Manager, error) {
 func (gr *Reconciler) reconcileResource(namespacedname types.NamespacedName) (reconcile.Result, error) {
 	var p time.Duration
 	period := DefaultReconcilePeriod
-	expected := &object.Bag{}
+	expected := []reconciler.Object{}
 	resource := gr.resource.(runtime.Object).DeepCopyObject()
 	nname := reflect.TypeOf(resource).String() + "/" + namespacedname.String()
 	rm := gr.rsrcMgr.Get("k8s")
@@ -117,29 +117,29 @@ func (gr *Reconciler) reconcileResource(namespacedname types.NamespacedName) (re
 		}
 	}
 
-	err = rm.Update(object.Item{Obj: &k8s.Object{Obj: resource.(metav1.Object)}})
+	err = rm.Update(reconciler.Object{Obj: &k8s.Object{Obj: resource.(metav1.Object)}})
 	if err != nil {
 		urt.HandleError(fmt.Errorf("error updating %s. %s", nname, err.Error()))
 	}
 	return reconcile.Result{RequeueAfter: period}, err
 }
 
-func (gr *Reconciler) observe(observables []object.Observable) (*object.Bag, error) {
-	seen := &object.Bag{}
+func (gr *Reconciler) observe(observables []reconciler.Observable) ([]reconciler.Object, error) {
+	seen := []reconciler.Object{}
 	for _, m := range gr.rsrcMgr.All() {
 		o, err := m.Observe(observables...)
 		if err != nil {
-			return &object.Bag{}, err
+			return []reconciler.Object{}, err
 		}
-		seen.Merge(o)
+		seen = append(seen, o...)
 	}
 	return seen, nil
 }
 
 // observeAndMutate is a function that is called to observe and mutate expected resources
-func (gr *Reconciler) observeAndMutate(h Handler, resource runtime.Object, crname string, aggregated *object.Bag) (*object.Bag, *object.Bag, *object.Bag, string, error) {
+func (gr *Reconciler) observeAndMutate(h Handler, resource runtime.Object, crname string, aggregated []reconciler.Object) ([]reconciler.Object, []reconciler.Object, []reconciler.Object, string, error) {
 	var err error
-	var expected, observed, dependent *object.Bag
+	var expected, observed, dependent []reconciler.Object
 
 	// Get dependenta objects
 
@@ -161,20 +161,20 @@ func (gr *Reconciler) observeAndMutate(h Handler, resource runtime.Object, crnam
 		}
 	}
 	if err != nil {
-		observed = &object.Bag{}
-		expected = &object.Bag{}
+		observed = []reconciler.Object{}
+		expected = []reconciler.Object{}
 	}
 	if expected == nil {
-		expected = &object.Bag{}
+		expected = []reconciler.Object{}
 	}
 	if observed == nil {
-		observed = &object.Bag{}
+		observed = []reconciler.Object{}
 	}
 	return expected, observed, dependent, stage, err
 }
 
 // finalizeUsing is a function that finalizes component
-func (gr *Reconciler) finalizeUsing(h Handler, resource runtime.Object, crname string, aggregated *object.Bag) error {
+func (gr *Reconciler) finalizeUsing(h Handler, resource runtime.Object, crname string, aggregated []reconciler.Object) error {
 	cname := crname + "(using:" + reflect.TypeOf(h).String() + ")"
 	log.Printf("%s  { finalizing\n", cname)
 	defer log.Printf("%s  } finalizing\n", cname)
@@ -184,12 +184,12 @@ func (gr *Reconciler) finalizeUsing(h Handler, resource runtime.Object, crname s
 	if err != nil {
 		handleError(stage, crname, err)
 	}
-	aggregated.Add(expected.Items()...)
+	aggregated = append(aggregated, expected...)
 	stage = "finalizing resource"
 	err = finalize(h, resource, observed, dependent)
 	if err == nil {
 		stage = "finalizing deletion of objects"
-		for _, o := range observed.Items() {
+		for _, o := range observed {
 			oRsrcName := o.Obj.GetName()
 			if o.Delete {
 				if rm, e := gr.itemMgr(o); e != nil {
@@ -220,9 +220,9 @@ func (gr *Reconciler) ownerRef(resource runtime.Object) *metav1.OwnerReference {
 }
 
 // reconcileUsing is a generic function that reconciles expected and observed resources
-func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname string, aggregated *object.Bag) (time.Duration, error) {
+func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname string, aggregated []reconciler.Object) (time.Duration, error) {
 	errs := []error{}
-	var reconciled *object.Bag = new(object.Bag)
+	var reconciled []reconciler.Object
 
 	cname := crname + "(cmpnt:" + reflect.TypeOf(h).String() + ")"
 	log.Printf("%s  { reconciling component\n", cname)
@@ -245,30 +245,30 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 	if err != nil {
 		errs = handleErrorArr(stage, crname, err, errs)
 	} else {
-		aggregated.Add(expected.Items()...)
+		aggregated = append(aggregated, expected...)
 		log.Printf("%s  Expected Resources:\n", cname)
-		for _, e := range expected.Items() {
+		for _, e := range expected {
 			log.Printf("%s   exp: %s %s\n", cname, e.Type, e.Obj.GetName())
 		}
 		log.Printf("%s  Observed Resources:\n", cname)
-		for _, e := range observed.Items() {
+		for _, e := range observed {
 			log.Printf("%s   obs: %s\n", cname, e.Obj.GetName())
 		}
 
 		log.Printf("%s  Reconciling Resources:\n", cname)
 	}
-	for _, e := range expected.Items() {
+	for _, e := range expected {
 		seen := false
 		eRsrcName := e.Obj.GetName()
-		for _, o := range observed.Items() {
+		for _, o := range observed {
 			if e.Type != o.Type || !e.Obj.IsSameAs(o.Obj) {
 				continue
 			}
 			// rsrc is seen in both expected and observed, update it if needed
-			reconciled.Add(o)
+			reconciled = append(reconciled, o)
 			seen = true
 
-			if e.Lifecycle == object.LifecycleReferred {
+			if e.Lifecycle == reconciler.LifecycleReferred {
 				log.Printf("%s   notmanaged: %s\n", cname, eRsrcName)
 				break
 			}
@@ -280,7 +280,7 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 			}
 
 			// canupdate
-			canupdate := e.Lifecycle != object.LifecycleNoUpdate
+			canupdate := e.Lifecycle != reconciler.LifecycleNoUpdate
 			// Component Differs is not expected to mutate e based on o
 			compDiffers := differs(h, e, o)
 			// Resource Manager Differs can mutate e based on o
@@ -299,7 +299,7 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 		}
 		// rsrc is in expected but not in observed - create
 		if !seen {
-			if e.Lifecycle != object.LifecycleReferred {
+			if e.Lifecycle != reconciler.LifecycleReferred {
 				e.Obj.SetOwnerReferences(gr.ownerRef(resource))
 				if rm, err := gr.itemMgr(e); err != nil {
 					errs = handleErrorArr("Create", cname, err, errs)
@@ -307,7 +307,7 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 					errs = handleErrorArr("Create", cname, err, errs)
 				} else {
 					log.Printf("%s   +create: %s\n", cname, eRsrcName)
-					reconciled.Add(e)
+					reconciled = append(reconciled, e)
 				}
 			} else {
 				err := fmt.Errorf("missing resource not managed by %s: %s", cname, eRsrcName)
@@ -317,10 +317,10 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 	}
 
 	// delete(observed - expected)
-	for _, o := range observed.Items() {
+	for _, o := range observed {
 		seen := false
 		oRsrcName := o.Obj.GetName()
-		for _, e := range expected.Items() {
+		for _, e := range expected {
 			if e.Type == o.Type && e.Obj.IsSameAs(o.Obj) {
 				seen = true
 				break

@@ -19,9 +19,9 @@ import (
 	"google.golang.org/api/redis/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	rmanager "sigs.k8s.io/controller-reconciler/pkg/object/manager"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/gcp"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	rmanager "sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp"
 )
 
 // constants
@@ -107,18 +107,18 @@ type Observable struct {
 	InstanceID string
 }
 
-// AsItem wraps object as resource item
-func (o *Object) AsItem() *object.Item {
-	return &object.Item{
+// AsReconcilerObject wraps object as resource item
+func (o *Object) AsReconcilerObject() *reconciler.Object {
+	return &reconciler.Object{
 		Obj:       o,
-		Lifecycle: object.LifecycleManaged,
+		Lifecycle: reconciler.LifecycleManaged,
 		Type:      Type,
 	}
 }
 
 // NewObservable returns an observable object
-func NewObservable(o *Object, labels map[string]string) object.Observable {
-	return object.Observable{
+func NewObservable(o *Object, labels map[string]string) reconciler.Observable {
+	return reconciler.Observable{
 		Type: Type,
 		Obj: Observable{
 			Labels:     labels,
@@ -130,9 +130,9 @@ func NewObservable(o *Object, labels map[string]string) object.Observable {
 }
 
 // ObservablesFromObjects returns ObservablesFromObjects
-func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string]string) []object.Observable {
-	var observables []object.Observable
-	for _, item := range bag.Items() {
+func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels map[string]string) []reconciler.Observable {
+	var observables []reconciler.Observable
+	for _, item := range bag {
 		if item.Type != Type {
 			continue
 		}
@@ -147,7 +147,7 @@ func (rm *RsrcManager) ObservablesFromObjects(bag *object.Bag, labels map[string
 }
 
 // CopyMutatedSpecFields - copy known mutated fields from observed to expected
-func CopyMutatedSpecFields(to *object.Item, from *object.Item) {
+func CopyMutatedSpecFields(to *reconciler.Object, from *reconciler.Object) {
 	e := to.Obj.(*Object).Obj
 	o := from.Obj.(*Object).Obj
 	if e.AlternativeLocationId == "" {
@@ -168,7 +168,7 @@ func CopyMutatedSpecFields(to *object.Item, from *object.Item) {
 }
 
 // SpecDiffers - check if the spec part differs
-func (rm *RsrcManager) SpecDiffers(expected, observed *object.Item) bool {
+func (rm *RsrcManager) SpecDiffers(expected, observed *reconciler.Object) bool {
 	CopyMutatedSpecFields(expected, observed)
 	e := expected.Obj.(*Object).Obj
 	o := observed.Obj.(*Object).Obj
@@ -185,8 +185,8 @@ func (rm *RsrcManager) SpecDiffers(expected, observed *object.Item) bool {
 }
 
 // Observe - get resources
-func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, error) {
-	var returnval *object.Bag = new(object.Bag)
+func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconciler.Object, error) {
+	var returnval []reconciler.Object
 	for _, item := range observables {
 		obs, ok := item.Obj.(Observable)
 		if !ok {
@@ -197,16 +197,16 @@ func (rm *RsrcManager) Observe(observables ...object.Observable) (*object.Bag, e
 			if gcp.IsNotFound(err) {
 				continue
 			}
-			return &object.Bag{}, nil
+			return []reconciler.Object{}, nil
 		}
 		obj := Object{Obj: redis, Parent: obs.Parent, InstanceID: obs.InstanceID}
-		returnval.Add(*obj.AsItem())
+		returnval = append(returnval, *obj.AsReconcilerObject())
 	}
 	return returnval, nil
 }
 
 // Update - Generic client update
-func (rm *RsrcManager) Update(item object.Item) error {
+func (rm *RsrcManager) Update(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
 	d := obj.Obj
 	_, err := rm.service.Projects.Locations.Instances.Patch(obj.Parent+"/instances/"+obj.InstanceID, d).UpdateMask("displayName,labels,memorySizeGb,redisConfigs").Do()
@@ -214,7 +214,7 @@ func (rm *RsrcManager) Update(item object.Item) error {
 }
 
 // Create - Generic client create
-func (rm *RsrcManager) Create(item object.Item) error {
+func (rm *RsrcManager) Create(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
 	d := obj.Obj
 	_, err := rm.service.Projects.Locations.Instances.Create(obj.Parent, d).InstanceId(obj.InstanceID).Do()
@@ -222,7 +222,7 @@ func (rm *RsrcManager) Create(item object.Item) error {
 }
 
 // Delete - Generic client delete
-func (rm *RsrcManager) Delete(item object.Item) error {
+func (rm *RsrcManager) Delete(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
 	_, err := rm.service.Projects.Locations.Instances.Delete(obj.Parent + "/instances/" + obj.InstanceID).Do()
 	return err

@@ -19,8 +19,8 @@ import (
 	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-reconciler/pkg/object"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 )
 
 // Constants defining labels
@@ -66,7 +66,7 @@ func (cm *ComponentMeta) ResetComponentList() {
 }
 
 // UpdateStatus the component status
-func (cm *ComponentMeta) UpdateStatus(items []object.Item) bool {
+func (cm *ComponentMeta) UpdateStatus(items []reconciler.Object) bool {
 	var ready = true
 	for _, item := range items {
 		r := item.Obj.(*k8s.Object)

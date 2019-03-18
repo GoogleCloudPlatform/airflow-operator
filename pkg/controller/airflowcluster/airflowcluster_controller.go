@@ -400,7 +400,7 @@ func getAirflowEnv(r *alpha1.AirflowCluster, saName string, base *alpha1.Airflow
 // --------------- Global Cluster component -------------------------
 
 // Observables asd
-func (c *Cluster) Observables(labels map[string]string) []reconciler.Observable {
+func (c *Cluster) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		//For(&app.ApplicationList{}).
@@ -445,7 +445,7 @@ func (c *Cluster) UpdateStatus(rsrc interface{}, reconciled []reconciler.Object,
 // ------------------------------ Airflow UI -----------------------------------
 
 // Observables asd
-func (s *UI) Observables(labels map[string]string) []reconciler.Observable {
+func (s *UI) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -503,7 +503,7 @@ func (s Redis) sts(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *Redis) Observables(labels map[string]string) []reconciler.Observable {
+func (s *Redis) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -645,7 +645,7 @@ func (s *Scheduler) DependentResources(rsrc interface{}) []reconciler.Object {
 }
 
 // Observables - get
-func (s *Scheduler) Observables(labels map[string]string) []reconciler.Observable {
+func (s *Scheduler) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -713,7 +713,7 @@ func (s *Worker) sts(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *Worker) Observables(labels map[string]string) []reconciler.Observable {
+func (s *Worker) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -751,7 +751,7 @@ func (s *Worker) Objects(rsrc interface{}, rsrclabels map[string]string, observe
 // ------------------------------ Flower ---------------------------------------
 
 // Observables asd
-func (s *Flower) Observables(labels map[string]string) []reconciler.Observable {
+func (s *Flower) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -793,13 +793,12 @@ func (s *MemoryStore) DependentResources(rsrc interface{}) []reconciler.Object {
 }
 
 // Observables for memstore
-func (s *MemoryStore) Observables(labels map[string]string) []reconciler.Observable {
+func (s *MemoryStore) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	return []reconciler.Observable{}
 }
 
 // Objects - returns resources
 func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error) {
-	var bag []reconciler.Object
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.MemoryStore == nil {
 		return []reconciler.Object{}, nil
@@ -807,12 +806,18 @@ func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, ob
 	splits := strings.Split(r.Spec.MemoryStore.Region, "-")
 	region := splits[0] + "-" + splits[1]
 	parent := fmt.Sprintf("projects/%v/locations/%v", r.Spec.MemoryStore.Project, region)
-	obj := redis.NewObject(parent, r.Name+"-redis")
-	robj := obj.Obj
+	bag, err := gcp.NewObjects().
+		WithLabels(rsrclabels).
+		Add(redis.NewObject(parent, r.Name+"-redis")).
+		Build()
+
+	if err != nil {
+		return []reconciler.Object{}, err
+	}
+	robj := bag[0].Obj.(*redis.Object).Redis
 	robj.AlternativeLocationId = r.Spec.MemoryStore.AlternativeLocationID
 	robj.AuthorizedNetwork = r.Spec.MemoryStore.AuthorizedNetwork
 	robj.DisplayName = r.Name + "-redis"
-	robj.Labels = gcp.CompliantLabelMap(rsrclabels)
 
 	if r.Spec.MemoryStore.NotifyKeyspaceEvents != "" {
 		if robj.RedisConfigs == nil {
@@ -832,7 +837,6 @@ func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, ob
 	robj.MemorySizeGb = int64(r.Spec.MemoryStore.MemorySizeGb)
 	robj.Tier = strings.ToUpper(r.Spec.MemoryStore.Tier)
 
-	bag = append(bag, *obj.AsReconcilerObject())
 	return bag, nil
 }
 
@@ -846,7 +850,7 @@ func (s *MemoryStore) UpdateStatus(rsrc interface{}, reconciled []reconciler.Obj
 	stts := &r.Spec.MemoryStore.Status
 	ready := false
 	if len(reconciled) != 0 {
-		instance := reconciled[0].Obj.(*redis.Object).Obj
+		instance := reconciled[0].Obj.(*redis.Object).Redis
 		stts.CreateTime = instance.CreateTime
 		stts.CurrentLocationID = instance.CurrentLocationId
 		stts.Host = instance.Host

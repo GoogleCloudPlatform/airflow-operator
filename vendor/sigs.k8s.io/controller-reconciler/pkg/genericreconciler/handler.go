@@ -34,18 +34,18 @@ const (
 
 // Handler is an interface for operating on logical Components of a resource
 type Handler interface {
-	Objects(rsrc interface{}, labels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error)
-	Observables(labels map[string]string) []reconciler.Observable
+	Objects(api interface{}, labels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error)
+	Observables(api interface{}, labels map[string]string) []reconciler.Observable
 }
 
 // StatusInterface - interface to update compoennt status
 type StatusInterface interface {
-	UpdateStatus(rsrc interface{}, reconciled []reconciler.Object, err error) time.Duration
+	UpdateStatus(api interface{}, reconciled []reconciler.Object, err error) time.Duration
 }
 
 // FinalizeInterface - finalize component
 type FinalizeInterface interface {
-	Finalize(rsrc interface{}, dependent, observed []reconciler.Object) error
+	Finalize(api interface{}, dependent, observed []reconciler.Object) error
 }
 
 // DiffersInterface - call differs
@@ -55,7 +55,7 @@ type DiffersInterface interface {
 
 // DependentResourcesInterface - get dependent resources
 type DependentResourcesInterface interface {
-	DependentResources(rsrc interface{}) []reconciler.Object
+	DependentResources(api interface{}) []reconciler.Object
 }
 
 // getLabels return

@@ -24,11 +24,12 @@ const (
 	LifecycleNoUpdate = "noupdate"
 )
 
-// Interface -
-type Interface interface {
+// ObjectInterface -
+type ObjectInterface interface {
 	GetName() string
 	IsSameAs(interface{}) bool
 	SetOwnerReferences(*metav1.OwnerReference) bool
+	SetLabels(labels map[string]string)
 }
 
 // Object is a container to capture the k8s resource info to be used by controller
@@ -38,7 +39,7 @@ type Object struct {
 	// Type - object type
 	Type string
 	// Obj -  object
-	Obj Interface
+	Obj ObjectInterface
 	// Delete - marker for deletion
 	Delete bool
 }

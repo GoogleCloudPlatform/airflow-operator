@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	app "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,9 +24,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"log"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
-	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
-	"sigs.k8s.io/controller-reconciler/pkg/status"
 	crscheme "sigs.k8s.io/controller-runtime/pkg/runtime/scheme"
 )
 
@@ -38,6 +35,11 @@ var (
 			Group:   "foo.cloud.google.com",
 			Version: "v1alpha1",
 		},
+	}
+	// SchemeGroupVersion - GV
+	SchemeGroupVersion = schema.GroupVersion{
+		Group:   "foo.cloud.google.com",
+		Version: "v1alpha1",
 	}
 )
 
@@ -69,8 +71,11 @@ type FooStatus struct {
 	Component string
 }
 
-// ExpectedResources - returns resources
-func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]string, dependent, aggregate []reconciler.Object) ([]reconciler.Object, error) {
+// FooHandler handler
+type FooHandler struct{}
+
+// Objects - returns resources
+func (s *FooHandler) Objects(rsrc interface{}, rsrclabels map[string]string, observed, dependent, aggregate []reconciler.Object) ([]reconciler.Object, error) {
 	var resources []reconciler.Object
 	r := rsrc.(*Foo)
 	n := r.ObjectMeta.Name
@@ -114,7 +119,7 @@ func (s *FooSpec) ExpectedResources(rsrc interface{}, rsrclabels map[string]stri
 }
 
 // Observables - return selectors
-func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}, rsrclabels map[string]string, expected []reconciler.Object) []reconciler.Observable {
+func (s *FooHandler) Observables(rsrc interface{}, rsrclabels map[string]string) []reconciler.Observable {
 	return []reconciler.Observable{
 		{
 			Type: k8s.Type,
@@ -133,48 +138,6 @@ func (s *FooSpec) Observables(rsrcmgr *manager.ResourceManager, rsrc interface{}
 			},
 		},
 	}
-}
-
-// UpdateComponentStatus - update status block
-func (s *FooSpec) UpdateComponentStatus(rsrci interface{}, reconciled []reconciler.Object, err error) {
-	rsrc := rsrci.(*Foo)
-	rsrcstatus := &rsrc.Status
-	rsrcstatus.Component = "base " + status.StatusReady
-}
-
-// Update - update status block for ESStatus
-func (s *FooStatus) Update(rsrc *Foo, reconciled []metav1.Object) {
-	s.Status = status.StatusReady
-}
-
-// ApplyDefaults applies defaults to the resource
-func (r *Foo) ApplyDefaults() {
-	if r.Spec.Version == "" {
-		r.Spec.Version = "v1.0"
-	}
-}
-
-// Validate validates the spec
-func (r *Foo) Validate() error {
-	return nil
-}
-
-// HandleError records status or error in status
-func (r *Foo) HandleError(err error) {
-}
-
-// Application return app obj
-func (s *FooSpec) Application(rsrc interface{}) app.Application {
-	return app.Application{}
-}
-
-// OwnerRef returns owner ref object with the component's resource as owner
-func (r *Foo) OwnerRef() *metav1.OwnerReference {
-	return metav1.NewControllerRef(r, schema.GroupVersionKind{
-		Group:   "foobar",
-		Version: "v1alpha1",
-		Kind:    "Foo",
-	})
 }
 
 func init() {

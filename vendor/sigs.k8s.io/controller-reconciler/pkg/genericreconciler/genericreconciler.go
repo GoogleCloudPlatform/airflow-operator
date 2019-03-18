@@ -60,8 +60,8 @@ func (gr *Reconciler) itemMgr(i reconciler.Object) (rmanager.Manager, error) {
 	return m, nil
 }
 
-// reconcileResource is a generic function that reconciles expected and observed resources
-func (gr *Reconciler) reconcileResource(namespacedname types.NamespacedName) (reconcile.Result, error) {
+// ReconcileResource is a generic function that reconciles expected and observed resources
+func (gr *Reconciler) ReconcileResource(namespacedname types.NamespacedName) (reconcile.Result, error) {
 	var p time.Duration
 	period := DefaultReconcilePeriod
 	expected := []reconciler.Object{}
@@ -153,7 +153,7 @@ func (gr *Reconciler) observeAndMutate(h Handler, resource runtime.Object, crnam
 
 		// Get Observe observables
 		stage = "observing resources"
-		observed, err = gr.observe(h.Observables(labels))
+		observed, err = gr.observe(h.Observables(resource, labels))
 		if err == nil && observed != nil {
 			// Get Expected resources
 			stage = "gathering expected resources"
@@ -345,7 +345,7 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 
 // Reconcile expected by kubebuilder
 func (gr *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	r, err := gr.reconcileResource(request.NamespacedName)
+	r, err := gr.ReconcileResource(request.NamespacedName)
 	if err != nil {
 		fmt.Printf("err: %s", err.Error())
 	}

@@ -22,7 +22,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-reconciler/pkg/object/manager/k8s"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 )
 
 type TemplateValues struct {

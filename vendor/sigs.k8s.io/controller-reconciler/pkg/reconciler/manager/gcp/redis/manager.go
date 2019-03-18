@@ -74,9 +74,14 @@ func (rm *RsrcManager) WithService(s *redis.Service) *RsrcManager {
 
 // Object - PD object
 type Object struct {
-	Obj        *redis.Instance
+	Redis      *redis.Instance
 	Parent     string
 	InstanceID string
+}
+
+// SetLabels - set labels
+func (o *Object) SetLabels(labels map[string]string) {
+	o.Redis.Labels = gcp.CompliantLabelMap(labels)
 }
 
 // SetOwnerReferences - return name string
@@ -94,7 +99,7 @@ func (o *Object) IsSameAs(a interface{}) bool {
 
 // GetName - return name string
 func (o *Object) GetName() string {
-	return o.Obj.Name + "(" + o.Obj.DisplayName + ")"
+	return o.Redis.Name + "(" + o.Redis.DisplayName + ")"
 }
 
 // Observable captures the k8s resource info and selector to fetch child resources
@@ -122,7 +127,7 @@ func NewObservable(o *Object, labels map[string]string) reconciler.Observable {
 		Type: Type,
 		Obj: Observable{
 			Labels:     labels,
-			Obj:        o.Obj,
+			Obj:        o.Redis,
 			Parent:     o.Parent,
 			InstanceID: o.InstanceID,
 		},
@@ -148,8 +153,8 @@ func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels ma
 
 // CopyMutatedSpecFields - copy known mutated fields from observed to expected
 func CopyMutatedSpecFields(to *reconciler.Object, from *reconciler.Object) {
-	e := to.Obj.(*Object).Obj
-	o := from.Obj.(*Object).Obj
+	e := to.Obj.(*Object).Redis
+	o := from.Obj.(*Object).Redis
 	if e.AlternativeLocationId == "" {
 		e.AlternativeLocationId = o.AlternativeLocationId
 	}
@@ -170,8 +175,8 @@ func CopyMutatedSpecFields(to *reconciler.Object, from *reconciler.Object) {
 // SpecDiffers - check if the spec part differs
 func (rm *RsrcManager) SpecDiffers(expected, observed *reconciler.Object) bool {
 	CopyMutatedSpecFields(expected, observed)
-	e := expected.Obj.(*Object).Obj
-	o := observed.Obj.(*Object).Obj
+	e := expected.Obj.(*Object).Redis
+	o := observed.Obj.(*Object).Redis
 
 	return !reflect.DeepEqual(e.AlternativeLocationId, o.AlternativeLocationId) ||
 		!reflect.DeepEqual(e.AuthorizedNetwork, o.AuthorizedNetwork) ||
@@ -199,7 +204,7 @@ func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconcil
 			}
 			return []reconciler.Object{}, nil
 		}
-		obj := Object{Obj: redis, Parent: obs.Parent, InstanceID: obs.InstanceID}
+		obj := Object{Redis: redis, Parent: obs.Parent, InstanceID: obs.InstanceID}
 		returnval = append(returnval, *obj.AsReconcilerObject())
 	}
 	return returnval, nil
@@ -208,7 +213,7 @@ func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconcil
 // Update - Generic client update
 func (rm *RsrcManager) Update(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
-	d := obj.Obj
+	d := obj.Redis
 	_, err := rm.service.Projects.Locations.Instances.Patch(obj.Parent+"/instances/"+obj.InstanceID, d).UpdateMask("displayName,labels,memorySizeGb,redisConfigs").Do()
 	return err
 }
@@ -216,7 +221,7 @@ func (rm *RsrcManager) Update(item reconciler.Object) error {
 // Create - Generic client create
 func (rm *RsrcManager) Create(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
-	d := obj.Obj
+	d := obj.Redis
 	_, err := rm.service.Projects.Locations.Instances.Create(obj.Parent, d).InstanceId(obj.InstanceID).Do()
 	return err
 }
@@ -229,12 +234,13 @@ func (rm *RsrcManager) Delete(item reconciler.Object) error {
 }
 
 // NewObject return a new object
-func NewObject(parent, instanceid string) *Object {
-	return &Object{
-		Obj:        &redis.Instance{},
+func NewObject(parent, instanceid string) (*reconciler.Object, error) {
+	obj := &Object{
+		Redis:      &redis.Instance{},
 		InstanceID: instanceid,
 		Parent:     parent,
 	}
+	return obj.AsReconcilerObject(), nil
 }
 
 // NewService returns a new client

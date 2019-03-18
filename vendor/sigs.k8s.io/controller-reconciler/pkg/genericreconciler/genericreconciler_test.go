@@ -26,8 +26,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	reconciler "sigs.k8s.io/controller-reconciler/pkg/genericreconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/genericreconciler"
 	test "sigs.k8s.io/controller-reconciler/pkg/genericreconciler/v1alpha1"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/k8s"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -36,19 +38,20 @@ var AddToSchemes runtime.SchemeBuilder
 var _ = Describe("Reconciler", func() {
 	cl := fake.NewFakeClient()
 	AddToSchemes.AddToScheme(scheme.Scheme)
-	gr := reconciler.Reconciler{}
+	gr := genericreconciler.Reconciler{}
 	// TODO gr.CR = customresource.CustomResource{Handle: &test.Foo{}}
-	km := k8s.NewRsrcManager().WithName("basek8s").WithClient(cl).WithScheme(scheme.Scheme)
-	gr.RsrcMgr.Add(k8s.Type, km)
-	m1 := reconciler.KVmap{"k1": "v1"}
-	m2 := reconciler.KVmap{"k2": "v2"}
-	m3 := reconciler.KVmap{"k3": "v3"}
+	gr.For(&test.Foo{}, test.SchemeGroupVersion).
+		WithResourceManager(k8s.Getter(context.TODO(), cl, scheme.Scheme)).
+		Using(&test.FooHandler{})
+	m1 := reconciler.KVMap{"k1": "v1"}
+	m2 := reconciler.KVMap{"k2": "v2"}
+	m3 := reconciler.KVMap{"k3": "v3"}
 
 	BeforeEach(func() {})
 
 	Describe("Status", func() {
 		It("should be able to Merge KVmap", func(done Done) {
-			m1.Merge(m2, m3, reconciler.KVmap{"k3": "v3"})
+			m1.Merge(m2, m3, reconciler.KVMap{"k3": "v3"})
 			Expect(len(m1)).To(Equal(3))
 			close(done)
 		})
@@ -75,7 +78,7 @@ var _ = Describe("Reconciler", func() {
 				Name:      "crA",
 				Namespace: "ns1",
 			}
-			_, err := gr.ReconcileCR(namespacedName)
+			_, err := gr.ReconcileResource(namespacedName)
 			Expect(err).To(BeNil())
 		})
 		It("should be able to Reconcile custom resource", func() {
@@ -93,7 +96,7 @@ var _ = Describe("Reconciler", func() {
 				Name:      "crA",
 				Namespace: "ns1",
 			}
-			_, err := gr.ReconcileCR(namespacedName)
+			_, err := gr.ReconcileResource(namespacedName)
 			Expect(err).To(BeNil())
 			sts := &appsv1.Deployment{}
 			err = cl.Get(nil, types.NamespacedName{Name: "crA-deploy", Namespace: "ns1"}, sts)

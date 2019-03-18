@@ -19,6 +19,7 @@ import (
 	"google.golang.org/api/googleapi"
 	"net/http"
 	"regexp"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
 	"strings"
 )
 
@@ -87,4 +88,52 @@ func GetZoneFromMetadata() (string, error) {
 		return zone, nil
 	}
 	return metadata.Zone()
+}
+
+// GetFilterStringFromLabels returns filter string
+func GetFilterStringFromLabels(map[string]string) string {
+	return ""
+}
+
+// Objects internal
+type Objects struct {
+	err     error
+	context interface{}
+	bag     []reconciler.Object
+	labels  map[string]string
+}
+
+// NewObjects returns nag
+func NewObjects() *Objects {
+	return &Objects{
+		bag: []reconciler.Object{},
+	}
+}
+
+//WithContext injects context for mutators
+func (b *Objects) WithContext(context interface{}) *Objects {
+	b.context = context
+	return b
+}
+
+//WithLabels injects labels
+func (b *Objects) WithLabels(labels map[string]string) *Objects {
+	b.labels = labels
+	return b
+}
+
+//Build - process
+func (b *Objects) Build() ([]reconciler.Object, error) {
+	return b.bag, b.err
+}
+
+// Add - add obj
+func (b *Objects) Add(o *reconciler.Object, err error) *Objects {
+	if err != nil {
+		b.err = err
+	} else {
+		o.Obj.SetLabels(b.labels)
+		b.bag = append(b.bag, *o)
+	}
+	return b
 }

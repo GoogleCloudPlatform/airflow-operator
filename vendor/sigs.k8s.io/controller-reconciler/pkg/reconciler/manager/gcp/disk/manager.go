@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp"
 )
 
@@ -36,15 +37,15 @@ type RsrcManager struct {
 }
 
 // Getter returns nil manager
-func Getter(ctx context.Context) func() (*RsrcManager, error) {
-	return func() (*RsrcManager, error) {
+func Getter(ctx context.Context) func() (string, manager.Manager, error) {
+	return func() (string, manager.Manager, error) {
 		rm := &RsrcManager{}
 		service, err := NewService(ctx)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		rm.WithService(service).WithName(Type + "Mgr")
-		return rm, nil
+		return Type, rm, nil
 	}
 }
 
@@ -73,18 +74,23 @@ func (rm *RsrcManager) WithService(s *compute.Service) *RsrcManager {
 
 // Object - PD object
 type Object struct {
-	Obj     *compute.Disk
+	Disk    *compute.Disk
 	Project string
 }
 
 // SetOwnerReferences - return name string
 func (o *Object) SetOwnerReferences(refs *metav1.OwnerReference) bool { return false }
 
+// SetLabels - set labels
+func (o *Object) SetLabels(labels map[string]string) {
+	o.Disk.Labels = gcp.CompliantLabelMap(labels)
+}
+
 // IsSameAs - return name string
 func (o *Object) IsSameAs(a interface{}) bool {
 	same := false
 	e := a.(*Object)
-	if e.Obj.Name == o.Obj.Name {
+	if e.Disk.Name == o.Disk.Name {
 		same = true
 	}
 	return same
@@ -92,7 +98,7 @@ func (o *Object) IsSameAs(a interface{}) bool {
 
 // GetName - return name string
 func (o *Object) GetName() string {
-	return "pd/" + o.Project + "/" + o.Obj.Zone + "/" + o.Obj.Name
+	return "pd/" + o.Project + "/" + o.Disk.Zone + "/" + o.Disk.Name
 }
 
 // Observable captures the k8s resource info and selector to fetch child resources
@@ -115,12 +121,11 @@ func (o *Object) AsReconcilerObject() *reconciler.Object {
 }
 
 // NewObservable returns an observable object
-func NewObservable(b *compute.Disk, labels map[string]string) reconciler.Observable {
+func NewObservable(labels map[string]string) reconciler.Observable {
 	return reconciler.Observable{
 		Type: Type,
 		Obj: Observable{
 			Labels: labels,
-			Obj:    b,
 		},
 	}
 }
@@ -136,7 +141,7 @@ func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels ma
 		if !ok {
 			continue
 		}
-		observables = append(observables, NewObservable(obj.Obj, labels))
+		observables = append(observables, reconciler.Observable{Type: Type, Obj: Observable{Obj: obj.Disk, Labels: labels}})
 
 	}
 	return observables
@@ -144,8 +149,8 @@ func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels ma
 
 // SpecDiffers - check if the spec part differs
 func (rm *RsrcManager) SpecDiffers(expected, observed *reconciler.Object) bool {
-	e := expected.Obj.(*Object).Obj
-	o := observed.Obj.(*Object).Obj
+	e := expected.Obj.(*Object).Disk
+	o := observed.Obj.(*Object).Disk
 	// TODO
 	return !reflect.DeepEqual(e.Labels, o.Labels) ||
 		!reflect.DeepEqual(e.Name, o.Name) ||
@@ -155,18 +160,37 @@ func (rm *RsrcManager) SpecDiffers(expected, observed *reconciler.Object) bool {
 // Observe - get resources
 func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconciler.Object, error) {
 	var returnval []reconciler.Object
+	project, err := gcp.GetProjectFromMetadata()
+	if err != nil {
+		return nil, err
+	}
+	zone, err := gcp.GetZoneFromMetadata()
+	if err != nil {
+		return nil, err
+	}
 	for _, item := range observables {
 		obs, ok := item.Obj.(Observable)
 		if !ok {
 			continue
 		}
-		d := obs.Obj
-		disk, err := rm.service.Disks.Get(obs.Project, d.Zone, d.Name).Do()
+		disklist, err := rm.service.Disks.List(project, zone).
+			Filter(gcp.GetFilterStringFromLabels(obs.Labels)).
+			Do()
 		if err != nil {
 			return []reconciler.Object{}, err
 		}
-		obj := Object{Obj: disk}
-		returnval = append(returnval, *obj.AsReconcilerObject())
+		for _, disk := range disklist.Items {
+			obj := Object{Disk: disk}
+			returnval = append(returnval, *obj.AsReconcilerObject())
+		}
+		/*
+			d := obs.Obj
+			disk, err := rm.service.Disks.Get(obs.Project, d.Zone, d.Name).Do()
+			if err != nil {
+				return []reconciler.Object{}, err
+			}
+			obj := Object{Obj: disk}
+		*/
 	}
 	return returnval, nil
 }
@@ -184,7 +208,7 @@ func (rm *RsrcManager) Update(item reconciler.Object) error {
 // Create - Generic client create
 func (rm *RsrcManager) Create(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
-	d := obj.Obj
+	d := obj.Disk
 	_, err := rm.service.Disks.Insert(obj.Project, d.Zone, d).Do()
 	return err
 }
@@ -192,29 +216,30 @@ func (rm *RsrcManager) Create(item reconciler.Object) error {
 // Delete - Generic client delete
 func (rm *RsrcManager) Delete(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
-	d := obj.Obj
+	d := obj.Disk
 	_, err := rm.service.Disks.Delete(obj.Project, d.Zone, d.Name).Do()
 	return err
 }
 
 // NewObject return a new object
-func NewObject(name string, size int64) (*Object, error) {
+func NewObject(name string, size int64) (*reconciler.Object, error) {
 	project, err := gcp.GetProjectFromMetadata()
 	if err != nil {
 		return nil, err
 	}
-	zone, err := gcp.GetProjectFromMetadata()
+	zone, err := gcp.GetZoneFromMetadata()
 	if err != nil {
 		return nil, err
 	}
-	return &Object{
-		Obj: &compute.Disk{
+	obj := &Object{
+		Disk: &compute.Disk{
 			Name:   name,
 			Zone:   zone,
 			SizeGb: size,
 		},
 		Project: project,
-	}, nil
+	}
+	return obj.AsReconcilerObject(), nil
 }
 
 // NewService returns a new client

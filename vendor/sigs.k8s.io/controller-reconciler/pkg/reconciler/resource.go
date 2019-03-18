@@ -13,6 +13,31 @@ limitations under the License.
 
 package reconciler
 
+import (
+	"math/rand"
+	"time"
+)
+
+// Password char space
+const (
+	PasswordCharNumSpace = "abcdefghijklmnopqrstuvwxyz0123456789"
+	PasswordCharSpace    = "abcdefghijklmnopqrstuvwxyz"
+)
+
+var (
+	random = rand.New(rand.NewSource(time.Now().UnixNano()))
+)
+
+// RandomAlphanumericString generates a random password of some fixed length.
+func RandomAlphanumericString(strlen int) string {
+	result := make([]byte, strlen)
+	for i := range result {
+		result[i] = PasswordCharNumSpace[random.Intn(len(PasswordCharNumSpace))]
+	}
+	result[0] = PasswordCharSpace[random.Intn(len(PasswordCharSpace))]
+	return string(result[:strlen])
+}
+
 // NoUpdate - set lifecycle to noupdate
 func NoUpdate(o *Object, v interface{}) {
 	o.Lifecycle = LifecycleNoUpdate

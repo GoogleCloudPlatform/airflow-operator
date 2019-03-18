@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
+	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp"
 	"strings"
 )
@@ -37,15 +38,15 @@ type RsrcManager struct {
 }
 
 // Getter returns nil manager
-func Getter(ctx context.Context) func() (*RsrcManager, error) {
-	return func() (*RsrcManager, error) {
+func Getter(ctx context.Context) func() (string, manager.Manager, error) {
+	return func() (string, manager.Manager, error) {
 		rm := &RsrcManager{}
 		service, err := NewService(ctx)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		rm.WithService(service).WithName(Type + "Mgr")
-		return rm, nil
+		return Type, rm, nil
 	}
 }
 
@@ -76,6 +77,11 @@ func (rm *RsrcManager) WithService(s *storage.Service) *RsrcManager {
 type Object struct {
 	Bucket    *storage.Bucket
 	ProjectID string
+}
+
+// SetLabels - set labels
+func (o *Object) SetLabels(labels map[string]string) {
+	o.Bucket.Labels = gcp.CompliantLabelMap(labels)
 }
 
 // SetOwnerReferences - return name string
@@ -116,13 +122,11 @@ func (o *Object) AsReconcilerObject() *reconciler.Object {
 }
 
 // NewObservable returns an observable object
-func NewObservable(o *Object, labels map[string]string) reconciler.Observable {
+func NewObservable(labels map[string]string) reconciler.Observable {
 	return reconciler.Observable{
 		Type: Type,
 		Obj: Observable{
-			Labels:    labels,
-			Obj:       o.Bucket,
-			ProjectID: o.ProjectID,
+			Labels: labels,
 		},
 	}
 }
@@ -138,7 +142,7 @@ func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels ma
 		if !ok {
 			continue
 		}
-		observables = append(observables, NewObservable(obj, labels))
+		observables = append(observables, reconciler.Observable{Type: Type, Obj: Observable{Obj: obj.Bucket, Labels: labels}})
 
 	}
 	return observables
@@ -207,17 +211,18 @@ func (rm *RsrcManager) Delete(item reconciler.Object) error {
 }
 
 // NewObject return a new object
-func NewObject(name string) (*Object, error) {
+func NewObject(name string) (*reconciler.Object, error) {
 	project, err := gcp.GetProjectFromMetadata()
 	if err != nil {
 		return nil, err
 	}
-	return &Object{
+	obj := &Object{
 		Bucket: &storage.Bucket{
 			Name: name,
 		},
 		ProjectID: project,
-	}, nil
+	}
+	return obj.AsReconcilerObject(), nil
 }
 
 // NewService returns a new client

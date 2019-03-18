@@ -58,11 +58,11 @@ type FileResource struct {
 }
 
 // Getter returns nil manager
-func Getter(ctx context.Context, c client.Client, v *runtime.Scheme) func() (*RsrcManager, error) {
-	return func() (*RsrcManager, error) {
+func Getter(ctx context.Context, c client.Client, v *runtime.Scheme) func() (string, manager.Manager, error) {
+	return func() (string, manager.Manager, error) {
 		rm := &RsrcManager{}
 		rm.WithClient(c).WithName(Type + "Mgr").WithScheme(v)
-		return rm, nil
+		return Type, rm, nil
 	}
 }
 
@@ -114,6 +114,11 @@ func isReferringSameObject(a, b metav1.OwnerReference) bool {
 		return false
 	}
 	return aGV == bGV && a.Kind == b.Kind && a.Name == b.Name
+}
+
+// SetLabels - set labels
+func (o *Object) SetLabels(labels map[string]string) {
+	o.Obj.SetLabels(labels)
 }
 
 // SetOwnerReferences - return name string
@@ -213,13 +218,13 @@ func itemFromReader(name string, b *bufio.Reader, data interface{}, list metav1.
 	return nil, errors.New(name + ":" + err.Error())
 }
 
-// ItemFromString populates Object from string spec
-func ItemFromString(name, spec string, values interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
+// ObjectFromString populates Object from string spec
+func ObjectFromString(name, spec string, values interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
 	return itemFromReader(name, bufio.NewReader(strings.NewReader(spec)), values, list)
 }
 
-// ItemFromFile populates Object from file
-func ItemFromFile(path string, values interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
+// ObjectFromFile populates Object from file
+func ObjectFromFile(path string, values interface{}, list metav1.ListInterface) (*reconciler.Object, error) {
 	f, err := os.Open(path)
 	if err == nil {
 		return itemFromReader(path, bufio.NewReader(f), values, list)
@@ -227,11 +232,11 @@ func ItemFromFile(path string, values interface{}, list metav1.ListInterface) (*
 	return nil, err
 }
 
-// ItemsFromFiles populates Object from file
-func ItemsFromFiles(values interface{}, fileResources []FileResource) ([]reconciler.Object, error) {
+// ObjectsFromFiles populates Object from file
+func ObjectsFromFiles(values interface{}, fileResources []FileResource) ([]reconciler.Object, error) {
 	items := []reconciler.Object{}
 	for _, fr := range fileResources {
-		o, err := ItemFromFile(fr.Path, values, fr.ObjList)
+		o, err := ObjectFromFile(fr.Path, values, fr.ObjList)
 		if err != nil {
 			return nil, err
 		}
@@ -546,7 +551,7 @@ func (b *Objects) WithFolder(path string) *Objects {
 
 //WithTemplate - add an item from template
 func (b *Objects) WithTemplate(file string, list metav1.ListInterface, mutators ...func(*reconciler.Object, interface{})) *Objects {
-	item, err := ItemFromFile(b.folder+file, b.value, list)
+	item, err := ObjectFromFile(b.folder+file, b.value, list)
 
 	if err == nil {
 		for _, fn := range mutators {

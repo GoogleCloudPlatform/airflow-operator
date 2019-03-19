@@ -226,6 +226,11 @@ func (rm *RsrcManager) Create(item reconciler.Object) error {
 	return err
 }
 
+func (rm *RsrcManager) List(parent string) ([]*redis.Instance, error) {
+	lst, err := rm.service.Projects.Locations.Instances.List(parent).Do()
+	return lst.Instances, err
+}
+
 // Delete - Generic client delete
 func (rm *RsrcManager) Delete(item reconciler.Object) error {
 	obj := item.Obj.(*Object)
@@ -255,4 +260,57 @@ func NewService(ctx context.Context) (*redis.Service, error) {
 	}
 	client.UserAgent = UserAgent
 	return client, nil
+}
+
+// --------------------- Observables -------------------------------
+
+// Observables - i
+type Observables struct {
+	observables []reconciler.Observable
+	labels      reconciler.KVMap
+}
+
+// NewObservables - observables
+func NewObservables() *Observables {
+	return &Observables{
+		observables: []reconciler.Observable{},
+	}
+}
+
+// WithLabels - inject labels
+func (o *Observables) WithLabels(labels reconciler.KVMap) *Observables {
+	o.labels = labels
+	return o
+}
+
+// For - add
+func (o *Observables) For(parent , instanceid string) *Observables {
+	rm, err := NewRsrcManager(context.TODO(), "redis")
+	instances, err := rm.List(parent)
+
+	if err != nil {
+		return o
+	}
+
+	for _, instance := range instances {
+		obj := Object{
+			Redis: instance,
+			Parent: parent,
+			InstanceID: instanceid,
+		}
+		o.observables = append(o.observables, NewObservable(&obj, o.labels))
+	}
+
+	return o
+}
+
+// Add - add
+func (o *Observables) Add(obs reconciler.Observable) *Observables {
+	o.observables = append(o.observables, obs)
+	return o
+}
+
+// Get - return observable array
+func (o *Observables) Get() []reconciler.Observable {
+	return o.observables
 }

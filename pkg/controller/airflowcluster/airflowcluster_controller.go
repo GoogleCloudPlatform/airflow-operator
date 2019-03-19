@@ -794,7 +794,15 @@ func (s *MemoryStore) DependentResources(rsrc interface{}) []reconciler.Object {
 
 // Observables for memstore
 func (s *MemoryStore) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
-	return []reconciler.Observable{}
+	r := rsrc.(*alpha1.AirflowCluster)
+	splits := strings.Split(r.Spec.MemoryStore.Region, "-")
+	region := splits[0] + "-" + splits[1]
+	parent := fmt.Sprintf("projects/%v/locations/%v", r.Spec.MemoryStore.Project, region)
+	instanceId := r.Name + "-redis"
+	return redis.NewObservables().
+		WithLabels(labels).
+		For(parent, instanceId).
+		Get()
 }
 
 // Objects - returns resources

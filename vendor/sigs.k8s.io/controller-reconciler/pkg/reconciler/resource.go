@@ -39,8 +39,15 @@ func RandomAlphanumericString(strlen int) string {
 }
 
 // NoUpdate - set lifecycle to noupdate
+// Manage by Create Only, Delete.
 func NoUpdate(o *Object, v interface{}) {
 	o.Lifecycle = LifecycleNoUpdate
+}
+
+// DecorateOnly - set lifecycle to decorate
+// Manage by update only. Dont create or delete
+func DecorateOnly(o *Object, v interface{}) {
+	o.Lifecycle = LifecycleDecorate
 }
 
 // Merge is used to merge multiple maps into the target map

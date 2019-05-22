@@ -31,6 +31,7 @@ import (
 	build "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/scheme"
 	"time"
 )
 
@@ -153,7 +154,7 @@ func (gr *Reconciler) observeAndMutate(h Handler, resource runtime.Object, crnam
 
 		// Get Observe observables
 		stage = "observing resources"
-		observed, err = gr.observe(h.Observables(resource, labels))
+		observed, err = gr.observe(h.Observables(resource, labels, dependent))
 		if err == nil && observed != nil {
 			// Get Expected resources
 			stage = "gathering expected resources"
@@ -320,6 +321,18 @@ func (gr *Reconciler) reconcileUsing(h Handler, resource runtime.Object, crname 
 	for _, o := range observed {
 		seen := false
 		oRsrcName := o.Obj.GetName()
+		if o.Lifecycle == reconciler.LifecycleDecorate {
+			if o.Update {
+				if rm, err := gr.itemMgr(o); err != nil {
+					errs = handleErrorArr("decorate", oRsrcName, err, errs)
+				} else if err := rm.Update(o); err != nil {
+					errs = handleErrorArr("update", oRsrcName, err, errs)
+				} else {
+					log.Printf("%s   decorate: %s\n", cname, oRsrcName)
+				}
+			}
+			continue
+		}
 		for _, e := range expected {
 			if e.Type == o.Type && e.Obj.IsSameAs(o.Obj) {
 				seen = true
@@ -352,16 +365,6 @@ func (gr *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, er
 	return r, err
 }
 
-// AddToSchemes for adding Application to scheme
-var AddToSchemes runtime.SchemeBuilder
-
-// Init sets up Reconciler
-func (gr *Reconciler) Init() {
-	km := k8s.NewRsrcManager(context.TODO(), gr.manager.GetClient(), gr.manager.GetScheme())
-	gr.rsrcMgr.Add(k8s.Type, km)
-	AddToSchemes.AddToScheme(gr.manager.GetScheme())
-}
-
 // WithManager - add manager
 func WithManager(m manager.Manager) *Reconciler {
 	gr := new(Reconciler)
@@ -391,10 +394,20 @@ func (gr *Reconciler) WithResourceManager(getter func() (string, rmanager.Manage
 	return gr
 }
 
+// AddToSchemes for adding Application to scheme
+var AddToSchemes runtime.SchemeBuilder
+
+// RegisterSchemeBuilder - create controller
+func (gr *Reconciler) RegisterSchemeBuilder(builder *scheme.Builder) *Reconciler {
+	AddToSchemes = append(AddToSchemes, builder.AddToScheme)
+	return gr
+}
+
 // Build - create controller
 func (gr *Reconciler) Build() *Reconciler {
 	km := k8s.NewRsrcManager(context.TODO(), gr.manager.GetClient(), gr.manager.GetScheme())
 	gr.rsrcMgr.Add(k8s.Type, km)
+	AddToSchemes.AddToScheme(gr.manager.GetScheme())
 	return gr
 }
 

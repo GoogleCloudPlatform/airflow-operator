@@ -119,7 +119,7 @@ func (s *FooHandler) Objects(rsrc interface{}, rsrclabels map[string]string, obs
 }
 
 // Observables - return selectors
-func (s *FooHandler) Observables(rsrc interface{}, rsrclabels map[string]string) []reconciler.Observable {
+func (s *FooHandler) Observables(rsrc interface{}, rsrclabels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return []reconciler.Observable{
 		{
 			Type: k8s.Type,

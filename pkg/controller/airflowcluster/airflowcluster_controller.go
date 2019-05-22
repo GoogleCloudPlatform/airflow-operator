@@ -399,7 +399,7 @@ func getAirflowEnv(r *alpha1.AirflowCluster, saName string, base *alpha1.Airflow
 // --------------- Global Cluster component -------------------------
 
 // Observables asd
-func (c *Cluster) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (c *Cluster) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		//For(&app.ApplicationList{}).
@@ -444,7 +444,7 @@ func (c *Cluster) UpdateStatus(rsrc interface{}, reconciled []reconciler.Object,
 // ------------------------------ Airflow UI -----------------------------------
 
 // Observables asd
-func (s *UI) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *UI) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -502,7 +502,7 @@ func (s Redis) sts(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *Redis) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *Redis) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -644,7 +644,7 @@ func (s *Scheduler) DependentResources(rsrc interface{}) []reconciler.Object {
 }
 
 // Observables - get
-func (s *Scheduler) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *Scheduler) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -712,7 +712,7 @@ func (s *Worker) sts(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *Worker) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *Worker) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -750,7 +750,7 @@ func (s *Worker) Objects(rsrc interface{}, rsrclabels map[string]string, observe
 // ------------------------------ Flower ---------------------------------------
 
 // Observables asd
-func (s *Flower) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *Flower) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -792,7 +792,7 @@ func (s *MemoryStore) DependentResources(rsrc interface{}) []reconciler.Object {
 }
 
 // Observables for memstore
-func (s *MemoryStore) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *MemoryStore) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	r := rsrc.(*alpha1.AirflowCluster)
 	if r.Spec.MemoryStore == nil {
 		return []reconciler.Observable{}

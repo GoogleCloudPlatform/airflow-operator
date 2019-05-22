@@ -19,9 +19,10 @@ import (
 
 // Common const definitions
 const (
-	LifecycleManaged  = "managed"
-	LifecycleReferred = "referred"
-	LifecycleNoUpdate = "noupdate"
+	LifecycleManaged  = "managed"  // CRUD
+	LifecycleReferred = "referred" // R
+	LifecycleNoUpdate = "noupdate" // CRD
+	LifecycleDecorate = "decorate" // RU
 )
 
 // ObjectInterface -
@@ -42,6 +43,8 @@ type Object struct {
 	Obj ObjectInterface
 	// Delete - marker for deletion
 	Delete bool
+	// Update - marker for update
+	Update bool
 }
 
 // Observable captures the k8s resource info and selector to fetch child resources

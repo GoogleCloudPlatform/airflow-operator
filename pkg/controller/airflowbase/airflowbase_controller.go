@@ -135,7 +135,7 @@ func (s *MySQL) sts(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *MySQL) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *MySQL) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -186,7 +186,7 @@ func (s *Postgres) sts(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *Postgres) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *Postgres) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -228,7 +228,7 @@ func (s *Postgres) UpdateStatus(rsrc interface{}, reconciled []reconciler.Object
 // ------------------------------ NFSStoreSpec ---------------------------------------
 
 // Observables asd
-func (s *NFS) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *NFS) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -271,7 +271,7 @@ func (s *NFS) UpdateStatus(rsrc interface{}, reconciled []reconciler.Object, err
 // ------------------------------ SQLProxy ---------------------------------------
 
 // Observables asd
-func (s *SQLProxy) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *SQLProxy) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		For(&appsv1.StatefulSetList{}).
@@ -319,7 +319,7 @@ func appcrd(o *reconciler.Object, v interface{}) {
 }
 
 // Observables asd
-func (s *AirflowBase) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
+func (s *AirflowBase) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
 		//For(&app.ApplicationList{}).

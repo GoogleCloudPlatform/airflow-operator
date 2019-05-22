@@ -17,10 +17,11 @@ limitations under the License.
 package airflowcluster
 
 import (
-	"encoding/base64"
-	//app "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	"context"
+	"encoding/base64"
+	app "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
+	"k8s.io/airflow-operator/pkg/controller/application"
 	"k8s.io/airflow-operator/pkg/controller/common"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -83,6 +84,7 @@ func newReconciler(mgr manager.Manager) *gr.Reconciler {
 		WithErrorHandler(handleError).
 		WithValidator(validate).
 		WithDefaulter(applyDefaults).
+		RegisterSchemeBuilder(app.SchemeBuilder).
 		Build()
 }
 
@@ -173,12 +175,6 @@ func templateValue(r *alpha1.AirflowCluster, dependent []reconciler.Object, comp
 		Selector:   selector,
 		Ports:      ports,
 	}
-}
-
-func appcrd(o *reconciler.Object, v interface{}) {
-	//r := v.(*common.TemplateValue)
-	//ao := application.Application{Application: *o.Obj.(*k8s.Object).Obj.(*app.Application)}
-	//o = ao.SetComponentGK(r.Expected).Item()
 }
 
 func addAirflowContainers(r *alpha1.AirflowCluster, ss *appsv1.StatefulSet) {
@@ -402,7 +398,7 @@ func getAirflowEnv(r *alpha1.AirflowCluster, saName string, base *alpha1.Airflow
 func (c *Cluster) Observables(rsrc interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable {
 	return k8s.NewObservables().
 		WithLabels(labels).
-		//For(&app.ApplicationList{}).
+		For(&app.ApplicationList{}).
 		Get()
 }
 
@@ -428,7 +424,13 @@ func (c *Cluster) Objects(rsrc interface{}, rsrclabels map[string]string, observ
 
 	return k8s.NewObjects().
 		WithValue(ngdata).
-		//WithTemplate("cluster-application.yaml", &app.ApplicationList{}, appcrd).
+		WithTemplate("cluster-application.yaml", &app.ApplicationList{},
+			func(o *reconciler.Object, v interface{}) {
+				ao := application.NewApplication(o.Obj.(*k8s.Object).Obj)
+				o = ao.SetSelector(r.Labels).
+					SetComponentGK(aggregated).
+					Item()
+			}).
 		Build()
 }
 

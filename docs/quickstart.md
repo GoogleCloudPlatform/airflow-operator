@@ -14,17 +14,11 @@ Due to a [known issue](https://cloud.google.com/kubernetes-engine/docs/how-to/ro
 $ kubectl create clusterrolebinding cluster-admin-binding --clusterrole cluster-admin --user your-account-email
 ```
 
-### Install Application CRD
+### Install CRDs
+Install the AirflowBase and AirflowCluster CRDs.
 The AirflowBase and AirflowCluster CRs result in [Application CRs](https://github.com/kubernetes-sigs/application) being created. Install Application CRD to see the Applications in the [GCP console](https://pantheon.corp.google.com/kubernetes/application)
 ```bash
-# install Application CRD
-$ kubectl create -f hack/appcrd.yaml
-```
-
-### Install Airflow CRDs
-Install the AirflowBase and AirflowCluster CRDs.
-```bash
-# install Airflow CRD
+# install Application and Airflow CRD
 $ make install
 ```
 
@@ -36,8 +30,7 @@ $ make install
 $ export IMG=gcr.io/myproject/airflow-controller:latest 
 
 # Build and push
-$ make docker-build
-$ make push 
+$ make docker-push
 ```
 
 ### Deploying Airflow Operator using manifests

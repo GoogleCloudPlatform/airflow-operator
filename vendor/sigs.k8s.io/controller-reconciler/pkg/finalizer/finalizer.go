@@ -19,8 +19,22 @@ import (
 
 // const fileds
 const (
-	Cleanup = "cleanup"
+	Cleanup = "sigapps.k8s.io/cleanup"
 )
+
+// Exists adds the finalizer string
+func Exists(o metav1.Object, new string) bool {
+	exists := false
+	existing := o.GetFinalizers()
+	for _, f := range existing {
+		if f == new {
+			exists = true
+			break
+		}
+	}
+
+	return exists
+}
 
 // Add adds the finalizer string
 func Add(o metav1.Object, new string) {

@@ -386,6 +386,20 @@ func Remove(b []reconciler.Object, inobj metav1.Object) {
 }
 */
 
+// IsSameKind - true if same kind
+func IsSameKind(o *reconciler.Object, inobj metav1.Object) bool {
+	same := false
+	if o.Type == Type {
+		obj := o.Obj.(*Object)
+		okind := reflect.TypeOf(obj.Obj).String()
+		inkind := reflect.TypeOf(inobj).String()
+		if okind == inkind {
+			same = true
+		}
+	}
+	return same
+}
+
 // Objs get items from the Object bag
 func Objs(b []reconciler.Object) []metav1.Object {
 	var objs []metav1.Object
@@ -562,6 +576,17 @@ func (b *Objects) WithTemplate(file string, list metav1.ListInterface, mutators 
 		// TODO accumulate vs overwrite
 		b.err = err
 	}
+	return b
+}
+
+// WithObject - add a static object
+func (b *Objects) WithObject(objfn func(interface{}) metav1.Object, list metav1.ListInterface) *Objects {
+	o := &reconciler.Object{
+		Lifecycle: reconciler.LifecycleManaged,
+		Type:      Type,
+		Obj:       &Object{Obj: objfn(b.value), ObjList: list},
+	}
+	b.bag = append(b.bag, *o)
 	return b
 }
 

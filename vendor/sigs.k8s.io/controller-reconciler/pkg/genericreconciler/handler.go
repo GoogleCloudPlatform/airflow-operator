@@ -35,7 +35,7 @@ const (
 // Handler is an interface for operating on logical Components of a resource
 type Handler interface {
 	Objects(api interface{}, labels map[string]string, observed, dependent, aggregated []reconciler.Object) ([]reconciler.Object, error)
-	Observables(api interface{}, labels map[string]string) []reconciler.Observable
+	Observables(api interface{}, labels map[string]string, dependent []reconciler.Object) []reconciler.Observable
 }
 
 // StatusInterface - interface to update compoennt status

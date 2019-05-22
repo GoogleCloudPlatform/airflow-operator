@@ -99,11 +99,7 @@ spec:
               properties:
                 alternativeLocationId:
                   type: string
-                apiVersion:
-                  type: string
                 authorizedNetwork:
-                  type: string
-                kind:
                   type: string
                 locationId:
                   type: string
@@ -112,8 +108,6 @@ spec:
                 memorySizeGb:
                   format: int64
                   type: integer
-                metadata:
-                  type: object
                 notifyKeyspaceEvents:
                   type: string
                 project:

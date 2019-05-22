@@ -15,6 +15,7 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/redis/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler"
 	rmanager "sigs.k8s.io/controller-reconciler/pkg/reconciler/manager"
 	"sigs.k8s.io/controller-reconciler/pkg/reconciler/manager/gcp"
+	"strings"
 )
 
 // constants
@@ -106,10 +108,8 @@ func (o *Object) GetName() string {
 type Observable struct {
 	// Labels list of labels
 	Labels map[string]string
-	// Object
-	Obj        *redis.Instance
-	Parent     string
-	InstanceID string
+	// Parent
+	Parent string
 }
 
 // AsReconcilerObject wraps object as resource item
@@ -121,17 +121,26 @@ func (o *Object) AsReconcilerObject() *reconciler.Object {
 	}
 }
 
-// NewObservable returns an observable object
-func NewObservable(o *Object, labels map[string]string) reconciler.Observable {
-	return reconciler.Observable{
-		Type: Type,
-		Obj: Observable{
-			Labels:     labels,
-			Obj:        o.Redis,
-			Parent:     o.Parent,
-			InstanceID: o.InstanceID,
-		},
+// GetParent - location
+func GetParent(project, region string) (string, error) {
+	var err error
+	if project == "" {
+		project, err = gcp.GetProjectFromMetadata()
+		if err != nil {
+			return "", err
+		}
 	}
+	if region == "" {
+		region, err = gcp.GetZoneFromMetadata()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	splits := strings.Split(region, "-")
+	region = splits[0] + "-" + splits[1]
+	parent := fmt.Sprintf("projects/%v/locations/%v", project, region)
+	return parent, nil
 }
 
 // ObservablesFromObjects returns ObservablesFromObjects
@@ -145,7 +154,7 @@ func (rm *RsrcManager) ObservablesFromObjects(bag []reconciler.Object, labels ma
 		if !ok {
 			continue
 		}
-		observables = append(observables, NewObservable(obj, labels))
+		observables = append(observables, NewObservable(labels, obj.Parent))
 
 	}
 	return observables
@@ -197,15 +206,17 @@ func (rm *RsrcManager) Observe(observables ...reconciler.Observable) ([]reconcil
 		if !ok {
 			continue
 		}
-		redis, err := rm.service.Projects.Locations.Instances.Get(obs.Parent + "/instances/" + obs.InstanceID).Do()
+		redisList, err := rm.service.Projects.Locations.Instances.List(obs.Parent).Do()
 		if err != nil {
 			if gcp.IsNotFound(err) {
 				continue
 			}
 			return []reconciler.Object{}, nil
 		}
-		obj := Object{Redis: redis, Parent: obs.Parent, InstanceID: obs.InstanceID}
-		returnval = append(returnval, *obj.AsReconcilerObject())
+		for _, r := range redisList.Instances {
+			obj := Object{Redis: r, Parent: obs.Parent}
+			returnval = append(returnval, *obj.AsReconcilerObject())
+		}
 	}
 	return returnval, nil
 }
@@ -224,6 +235,12 @@ func (rm *RsrcManager) Create(item reconciler.Object) error {
 	d := obj.Redis
 	_, err := rm.service.Projects.Locations.Instances.Create(obj.Parent, d).InstanceId(obj.InstanceID).Do()
 	return err
+}
+
+// List - list
+func (rm *RsrcManager) List(parent string) ([]*redis.Instance, error) {
+	lst, err := rm.service.Projects.Locations.Instances.List(parent).Do()
+	return lst.Instances, err
 }
 
 // Delete - Generic client delete
@@ -255,4 +272,17 @@ func NewService(ctx context.Context) (*redis.Service, error) {
 	}
 	client.UserAgent = UserAgent
 	return client, nil
+}
+
+// --------------------- Observables -------------------------------
+
+// NewObservable returns an observable object
+func NewObservable(labels map[string]string, parent string) reconciler.Observable {
+	return reconciler.Observable{
+		Type: Type,
+		Obj: Observable{
+			Labels: labels,
+			Parent: parent,
+		},
+	}
 }

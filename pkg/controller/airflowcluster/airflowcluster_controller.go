@@ -20,7 +20,6 @@ import (
 	"encoding/base64"
 	//app "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	"context"
-	"fmt"
 	alpha1 "k8s.io/airflow-operator/pkg/apis/airflow/v1alpha1"
 	"k8s.io/airflow-operator/pkg/controller/common"
 	appsv1 "k8s.io/api/apps/v1"
@@ -794,7 +793,13 @@ func (s *MemoryStore) DependentResources(rsrc interface{}) []reconciler.Object {
 
 // Observables for memstore
 func (s *MemoryStore) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
-	return []reconciler.Observable{}
+	r := rsrc.(*alpha1.AirflowCluster)
+	parent, err := redis.GetParent(r.Spec.MemoryStore.Project, r.Spec.MemoryStore.Region)
+	if err != nil {
+		return []reconciler.Observable{}
+		// TODO assert()
+	}
+	return []reconciler.Observable{redis.NewObservable(labels, parent)}
 }
 
 // Objects - returns resources
@@ -803,9 +808,10 @@ func (s *MemoryStore) Objects(rsrc interface{}, rsrclabels map[string]string, ob
 	if r.Spec.MemoryStore == nil {
 		return []reconciler.Object{}, nil
 	}
-	splits := strings.Split(r.Spec.MemoryStore.Region, "-")
-	region := splits[0] + "-" + splits[1]
-	parent := fmt.Sprintf("projects/%v/locations/%v", r.Spec.MemoryStore.Project, region)
+	parent, err := redis.GetParent(r.Spec.MemoryStore.Project, r.Spec.MemoryStore.Region)
+	if err != nil {
+		return []reconciler.Object{}, err
+	}
 	bag, err := gcp.NewObjects().
 		WithLabels(rsrclabels).
 		Add(redis.NewObject(parent, r.Name+"-redis")).

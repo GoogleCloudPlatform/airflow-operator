@@ -794,6 +794,9 @@ func (s *MemoryStore) DependentResources(rsrc interface{}) []reconciler.Object {
 // Observables for memstore
 func (s *MemoryStore) Observables(rsrc interface{}, labels map[string]string) []reconciler.Observable {
 	r := rsrc.(*alpha1.AirflowCluster)
+	if r.Spec.MemoryStore == nil {
+		return []reconciler.Observable{}
+	}
 	parent, err := redis.GetParent(r.Spec.MemoryStore.Project, r.Spec.MemoryStore.Region)
 	if err != nil {
 		return []reconciler.Observable{}

@@ -1,7 +1,7 @@
 # Quick Start
 
 ## Deploy from GCP Marketplace
-[One Click Deployment](https://pantheon.corp.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/). The marketplace may not have the latest version of the operator. If you need to deploy from latest master continue reading.
+[One Click Deployment](https://console.cloud.google.com/marketplace/details/google/airflow-operator) from Google Cloud Marketplace to your [GKE cluster](https://cloud.google.com/kubernetes-engine/). The marketplace may not have the latest version of the operator. If you need to deploy from latest master continue reading.
 
 ## Running from source
 Refer to the [Development Guide](https://github.com/GoogleCloudPlatform/airflow-operator/blob/master/docs/development.md).
